@@ -21,7 +21,7 @@ async fn main() {
     loop {
         let delta_time = get_frame_time();
 
-        clear_background(DARKPURPLE);
+        clear_background(BLACK);
 
         world.camera.handle_input(delta_time);
         world.camera.update();

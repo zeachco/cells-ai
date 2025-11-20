@@ -34,6 +34,12 @@ impl Cell {
     }
 
     pub fn update(&mut self) {
+        if rand::gen_range(0.0, 1.0) < 0.1 {
+            self.forward();
+        }
+        if rand::gen_range(0.0, 1.0) < 0.1 {
+            self.random_turn();
+        }
         self.x += self.velocity_x;
         self.y += self.velocity_y;
     }
