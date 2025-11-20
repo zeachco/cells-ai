@@ -1,4 +1,10 @@
+mod camera;
+mod cell;
+mod math;
+mod world;
+
 use macroquad::prelude::*;
+use world::World;
 
 fn window_conf() -> Conf {
     Conf {
@@ -10,20 +16,17 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    let mut world = World::spawn();
+
     loop {
+        let delta_time = get_frame_time();
+
         clear_background(DARKBLUE);
 
-        let width = screen_width();
-        let height = screen_height();
-
-        // Draw shapes using relative positions based on screen size
-        draw_rectangle(width * 0.125, height * 0.167, width * 0.25, height * 0.167, RED);
-        draw_circle(width * 0.5, height * 0.5, width * 0.0625, GREEN);
-        draw_line(width * 0.0625, height * 0.083, width * 0.9375, height * 0.917, 5.0, WHITE);
-
-        // Additional shapes
-        draw_rectangle(width * 0.625, height * 0.667, width * 0.125, height * 0.25, YELLOW);
-        draw_circle(width * 0.25, height * 0.75, width * 0.0375, ORANGE);
+        world.camera.handle_input(delta_time);
+        world.camera.update();
+        world.update();
+        world.render();
 
         next_frame().await
     }
