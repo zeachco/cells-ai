@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cells - Simple Scene</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        canvas {
+            outline: none;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glcanvas" tabindex='1'></canvas>
+    <script src="https://not-fl3.github.io/miniquad-samples/gl.js"></script>
+    <script>load("target/wasm32-unknown-unknown/release/cells.wasm");</script>
+</body>
+</html>
