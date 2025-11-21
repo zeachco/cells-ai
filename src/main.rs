@@ -25,7 +25,7 @@ async fn main() {
 
         world.camera.handle_input(delta_time);
         world.camera.update();
-        world.update();
+        world.update(delta_time);
         world.render();
 
         next_frame().await
