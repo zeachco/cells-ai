@@ -59,6 +59,16 @@ impl Cell {
         let screen_x = self.x - camera_x;
         let screen_y = self.y - camera_y;
 
+        // Viewport culling: only render if cell is visible on screen
+        let margin = radius * 1.5; // Account for direction line
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+
+        if screen_x < -margin || screen_x > screen_w + margin ||
+           screen_y < -margin || screen_y > screen_h + margin {
+            return; // Cell is outside viewport, skip rendering
+        }
+
         // Draw the cell body
         if self.energy > 0.0 {
             // Alive cells are filled
