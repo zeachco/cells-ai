@@ -32,6 +32,62 @@ pub struct Cell {
 }
 
 impl Cell {
+    // Apply 1% mutation variance to a value, clamped to min/max range
+    fn mutate(value: f32, min: f32, max: f32) -> f32 {
+        let variance = rand::gen_range(-0.01, 0.01); // ±1%
+        let mutated = value * (1.0 + variance);
+        mutated.clamp(min, max)
+    }
+
+    // Convert RGB to HSV
+    fn rgb_to_hsv(color: Color) -> (f32, f32, f32) {
+        let r = color.r;
+        let g = color.g;
+        let b = color.b;
+
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let delta = max - min;
+
+        let h = if delta == 0.0 {
+            0.0
+        } else if max == r {
+            60.0 * (((g - b) / delta) % 6.0)
+        } else if max == g {
+            60.0 * (((b - r) / delta) + 2.0)
+        } else {
+            60.0 * (((r - g) / delta) + 4.0)
+        };
+
+        let s = if max == 0.0 { 0.0 } else { delta / max };
+        let v = max;
+
+        (h, s, v)
+    }
+
+    // Convert HSV to RGB
+    fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Color {
+        let c = v * s;
+        let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+        let m = v - c;
+
+        let (r, g, b) = if h < 60.0 {
+            (c, x, 0.0)
+        } else if h < 120.0 {
+            (x, c, 0.0)
+        } else if h < 180.0 {
+            (0.0, c, x)
+        } else if h < 240.0 {
+            (0.0, x, c)
+        } else if h < 300.0 {
+            (x, 0.0, c)
+        } else {
+            (c, 0.0, x)
+        };
+
+        Color::new(r + m, g + m, b + m, 1.0)
+    }
+
     // Get current radius based on age
     // Age 0-30: scales from 10% to 100% of base radius
     // Age 30+: stays at 100%
@@ -73,12 +129,7 @@ impl Cell {
             age: 0.0,
 
             // Inherited Attributes
-            color: Color::new(
-                rand::gen_range(0.5, 1.0),
-                rand::gen_range(0.5, 1.0),
-                rand::gen_range(0.5, 1.0),
-                1.0,
-            ),
+            color: Self::hsv_to_rgb(180.0, 0.8, 0.9), // Teal color (hue=180°)
             radius: rand::gen_range(6.0, 15.0),
             move_probability: rand::gen_range(0.05, 0.15),
             turn_probability: rand::gen_range(0.05, 0.15),
@@ -94,28 +145,37 @@ impl Cell {
         let angle = rand::gen_range(0.0, std::f32::consts::TAU);
         let offset = 15.0;
 
+        // Apply mutation to inherited attributes with their respective ranges
+        let mutated_speed = Self::mutate(self.speed, 1.0, 3.0);
+
+        // Mutate color by adjusting hue angle (±1%)
+        let (h, s, v) = Self::rgb_to_hsv(self.color);
+        let hue_variance = rand::gen_range(-0.01, 0.01); // ±1%
+        let mutated_hue = (h + h * hue_variance).rem_euclid(360.0); // Wrap around at 360°
+        let mutated_color = Self::hsv_to_rgb(mutated_hue, s, v);
+
         Cell {
             // Individual State
             x: self.x + angle.cos() * offset,
             y: self.y + angle.sin() * offset,
-            velocity_x: angle.cos() * self.speed * rand::gen_range(0.5, 1.0),
-            velocity_y: angle.sin() * self.speed * rand::gen_range(0.5, 1.0),
+            velocity_x: angle.cos() * mutated_speed * rand::gen_range(0.5, 1.0),
+            velocity_y: angle.sin() * mutated_speed * rand::gen_range(0.5, 1.0),
             energy: 0.0, // Will be set by caller
             angle: rand::gen_range(0.0, std::f32::consts::TAU),
             angle_velocity: rand::gen_range(-0.05, 0.05),
             state: CellState::Alive,
             age: 0.0, // Start as newborn
 
-            // Inherited Attributes (from parent)
-            color: self.color,
-            radius: rand::gen_range(6.0, 15.0),
-            move_probability: rand::gen_range(0.05, 0.15),
-            turn_probability: rand::gen_range(0.05, 0.15),
-            speed: rand::gen_range(1.0, 3.0),
-            turn_rate: rand::gen_range(0.05, 0.15),
-            energy_chunk_size: self.energy_chunk_size,
-            species_multiplier: self.species_multiplier,
-            mass: self.mass,
+            // Inherited Attributes (from parent with 1% mutation)
+            color: mutated_color,
+            radius: Self::mutate(self.radius, 6.0, 15.0),
+            move_probability: Self::mutate(self.move_probability, 0.05, 0.15),
+            turn_probability: Self::mutate(self.turn_probability, 0.05, 0.15),
+            speed: mutated_speed,
+            turn_rate: Self::mutate(self.turn_rate, 0.05, 0.15),
+            energy_chunk_size: Self::mutate(self.energy_chunk_size, 45.0, 55.0),
+            species_multiplier: Self::mutate(self.species_multiplier, 0.9, 2.0),
+            mass: Self::mutate(self.mass, 180.0, 220.0),
         }
     }
 

@@ -79,7 +79,8 @@ impl World {
 
         // Calculate average FPS
         if !self.frame_times.is_empty() {
-            let avg_frame_time: f32 = self.frame_times.iter().sum::<f32>() / self.frame_times.len() as f32;
+            let avg_frame_time: f32 =
+                self.frame_times.iter().sum::<f32>() / self.frame_times.len() as f32;
             self.current_fps = if avg_frame_time > 0.0 {
                 1.0 / avg_frame_time
             } else {
