@@ -58,7 +58,7 @@ impl Camera {
             self.target_angle += self.rotation_speed * delta_time;
         }
 
-        // Mouse/touch drag for camera movement
+        // Mouse/touch drag for camera movement (direct, no velocity)
         let mouse_pos = mouse_position();
 
         if is_mouse_button_pressed(MouseButton::Left) {
@@ -73,9 +73,11 @@ impl Camera {
             let delta_x = mouse_pos.0 - self.last_mouse_x;
             let delta_y = mouse_pos.1 - self.last_mouse_y;
 
-            // Move camera in opposite direction (inverse of drag)
-            self.target_x -= delta_x;
-            self.target_y -= delta_y;
+            // Move camera directly in opposite direction (no velocity/interpolation)
+            self.x -= delta_x;
+            self.y -= delta_y;
+            self.target_x = self.x;
+            self.target_y = self.y;
 
             // Update last position
             self.last_mouse_x = mouse_pos.0;
@@ -85,6 +87,18 @@ impl Camera {
         if is_mouse_button_released(MouseButton::Left) {
             // Stop dragging
             self.is_dragging = false;
+        }
+
+        // Trackpad/scroll wheel for camera movement (direct, no velocity)
+        let scroll = mouse_wheel();
+        if scroll.0 != 0.0 || scroll.1 != 0.0 {
+            // Move camera directly with scroll (reversed for natural scrolling)
+            // Scale the scroll values for appropriate speed
+            let scroll_speed = 2.0;
+            self.x -= scroll.0 * scroll_speed;
+            self.y -= scroll.1 * scroll_speed;
+            self.target_x = self.x;
+            self.target_y = self.y;
         }
     }
 

@@ -2,8 +2,8 @@ use crate::camera::Camera;
 use crate::cell::Cell;
 use macroquad::prelude::*;
 
-pub const WORLD_WIDTH: f32 = 5000.0;
-pub const WORLD_HEIGHT: f32 = 5000.0;
+pub const WORLD_WIDTH: f32 = 8000.0;
+pub const WORLD_HEIGHT: f32 = 8000.0;
 
 pub struct World {
     pub cells: Vec<Cell>,
@@ -13,7 +13,7 @@ pub struct World {
 impl World {
     pub fn spawn() -> Self {
         let mut cells = Vec::new();
-        for _ in 0..2500 {
+        for _ in 0..25000 {
             cells.push(Cell::spawn());
         }
 
