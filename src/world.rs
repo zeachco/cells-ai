@@ -52,10 +52,29 @@ impl World {
         // Render boundary lines
         self.render_boundaries();
 
-        // Render cells
+        // Count stats
+        let mut cells_in_viewport = 0;
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let radius = 10.0;
+        let margin = radius * 1.5;
+
+        // Render cells and count viewport cells
         for cell in &self.cells {
+            // Check if cell is in viewport
+            let screen_x = cell.x - self.camera.x;
+            let screen_y = cell.y - self.camera.y;
+
+            if !(screen_x < -margin || screen_x > screen_w + margin ||
+                 screen_y < -margin || screen_y > screen_h + margin) {
+                cells_in_viewport += 1;
+            }
+
             cell.render(self.camera.x, self.camera.y);
         }
+
+        // Render stats
+        self.render_stats(cells_in_viewport);
     }
 
     fn render_boundaries(&self) {
@@ -105,5 +124,25 @@ impl World {
             line_thickness,
             boundary_color,
         );
+    }
+
+    fn render_stats(&self, cells_in_viewport: usize) {
+        // Count active cells (energy > 0)
+        let active_cells = self.cells.iter().filter(|cell| cell.energy > 0.0).count();
+        let total_cells = self.cells.len();
+
+        // Render stats in top-left corner
+        let padding = 20.0;
+        let font_size = 24.0;
+        let line_height = 30.0;
+        let text_color = WHITE;
+
+        // Line 1: Total active cells / total cells
+        let line1 = format!("Active cells: {} / {}", active_cells, total_cells);
+        draw_text(&line1, padding, padding + font_size, font_size, text_color);
+
+        // Line 2: Cells in viewport
+        let line2 = format!("Cells in viewport: {}", cells_in_viewport);
+        draw_text(&line2, padding, padding + font_size + line_height, font_size, text_color);
     }
 }
