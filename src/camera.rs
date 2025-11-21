@@ -11,6 +11,10 @@ pub struct Camera {
     pub move_speed: f32,
     pub rotation_speed: f32,
     pub lerp_factor: f32,
+    // Drag state
+    is_dragging: bool,
+    last_mouse_x: f32,
+    last_mouse_y: f32,
 }
 
 impl Camera {
@@ -25,6 +29,9 @@ impl Camera {
             move_speed: 1000.0,
             rotation_speed: 2.0,
             lerp_factor: 0.05,
+            is_dragging: false,
+            last_mouse_x: 0.0,
+            last_mouse_y: 0.0,
         }
     }
 
@@ -49,6 +56,35 @@ impl Camera {
         }
         if is_key_down(KeyCode::E) {
             self.target_angle += self.rotation_speed * delta_time;
+        }
+
+        // Mouse/touch drag for camera movement
+        let mouse_pos = mouse_position();
+
+        if is_mouse_button_pressed(MouseButton::Left) {
+            // Start dragging
+            self.is_dragging = true;
+            self.last_mouse_x = mouse_pos.0;
+            self.last_mouse_y = mouse_pos.1;
+        }
+
+        if is_mouse_button_down(MouseButton::Left) && self.is_dragging {
+            // Calculate delta movement
+            let delta_x = mouse_pos.0 - self.last_mouse_x;
+            let delta_y = mouse_pos.1 - self.last_mouse_y;
+
+            // Move camera in opposite direction (inverse of drag)
+            self.target_x -= delta_x;
+            self.target_y -= delta_y;
+
+            // Update last position
+            self.last_mouse_x = mouse_pos.0;
+            self.last_mouse_y = mouse_pos.1;
+        }
+
+        if is_mouse_button_released(MouseButton::Left) {
+            // Stop dragging
+            self.is_dragging = false;
         }
     }
 
