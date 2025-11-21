@@ -13,7 +13,7 @@ pub struct World {
 impl World {
     pub fn spawn() -> Self {
         let mut cells = Vec::new();
-        for _ in 0..25000 {
+        for _ in 0..2500 {
             cells.push(Cell::spawn());
         }
 
