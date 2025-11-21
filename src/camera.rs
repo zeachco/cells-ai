@@ -15,6 +15,10 @@ pub struct Camera {
     is_dragging: bool,
     last_mouse_x: f32,
     last_mouse_y: f32,
+    last_drag_delta_x: f32,
+    last_drag_delta_y: f32,
+    last_scroll_delta_x: f32,
+    last_scroll_delta_y: f32,
 }
 
 impl Camera {
@@ -26,12 +30,16 @@ impl Camera {
             target_x: 0.0,
             target_y: 0.0,
             target_angle: 0.0,
-            move_speed: 1000.0,
+            move_speed: 2000.0, // Increased from 1000.0
             rotation_speed: 2.0,
-            lerp_factor: 0.05,
+            lerp_factor: 0.15, // Increased from 0.05 for more friction
             is_dragging: false,
             last_mouse_x: 0.0,
             last_mouse_y: 0.0,
+            last_drag_delta_x: 0.0,
+            last_drag_delta_y: 0.0,
+            last_scroll_delta_x: 0.0,
+            last_scroll_delta_y: 0.0,
         }
     }
 
@@ -58,7 +66,7 @@ impl Camera {
             self.target_angle += self.rotation_speed * delta_time;
         }
 
-        // Mouse/touch drag for camera movement (direct, no velocity)
+        // Mouse/touch drag for camera movement (direct, with momentum on release)
         let mouse_pos = mouse_position();
 
         if is_mouse_button_pressed(MouseButton::Left) {
@@ -66,6 +74,8 @@ impl Camera {
             self.is_dragging = true;
             self.last_mouse_x = mouse_pos.0;
             self.last_mouse_y = mouse_pos.1;
+            self.last_drag_delta_x = 0.0;
+            self.last_drag_delta_y = 0.0;
         }
 
         if is_mouse_button_down(MouseButton::Left) && self.is_dragging {
@@ -79,26 +89,43 @@ impl Camera {
             self.target_x = self.x;
             self.target_y = self.y;
 
+            // Store delta for momentum
+            self.last_drag_delta_x = delta_x;
+            self.last_drag_delta_y = delta_y;
+
             // Update last position
             self.last_mouse_x = mouse_pos.0;
             self.last_mouse_y = mouse_pos.1;
         }
 
-        if is_mouse_button_released(MouseButton::Left) {
-            // Stop dragging
+        if is_mouse_button_released(MouseButton::Left) && self.is_dragging {
+            // Stop dragging and apply momentum
             self.is_dragging = false;
+
+            // Apply momentum based on last drag delta
+            self.target_x = self.x - self.last_drag_delta_x;
+            self.target_y = self.y - self.last_drag_delta_y;
         }
 
-        // Trackpad/scroll wheel for camera movement (direct, no velocity)
+        // Trackpad/scroll wheel for camera movement (direct, with momentum)
         let scroll = mouse_wheel();
         if scroll.0 != 0.0 || scroll.1 != 0.0 {
             // Move camera directly with scroll (reversed for natural scrolling)
             // Scale the scroll values for appropriate speed
             let scroll_speed = 2.0;
-            self.x -= scroll.0 * scroll_speed;
-            self.y -= scroll.1 * scroll_speed;
-            self.target_x = self.x;
-            self.target_y = self.y;
+            let scroll_delta_x = scroll.0 * scroll_speed;
+            let scroll_delta_y = scroll.1 * scroll_speed;
+
+            self.x -= scroll_delta_x;
+            self.y -= scroll_delta_y;
+
+            // Store scroll delta
+            self.last_scroll_delta_x = scroll_delta_x;
+            self.last_scroll_delta_y = scroll_delta_y;
+
+            // Apply momentum immediately
+            self.target_x = self.x - scroll_delta_x;
+            self.target_y = self.y - scroll_delta_y;
         }
     }
 
