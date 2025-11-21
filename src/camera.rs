@@ -22,9 +22,9 @@ impl Camera {
             target_x: 0.0,
             target_y: 0.0,
             target_angle: 0.0,
-            move_speed: 200.0,
+            move_speed: 1000.0,
             rotation_speed: 2.0,
-            lerp_factor: 0.1,
+            lerp_factor: 0.05,
         }
     }
 
