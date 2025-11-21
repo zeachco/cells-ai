@@ -65,8 +65,11 @@ impl World {
             let screen_x = cell.x - self.camera.x;
             let screen_y = cell.y - self.camera.y;
 
-            if !(screen_x < -margin || screen_x > screen_w + margin ||
-                 screen_y < -margin || screen_y > screen_h + margin) {
+            if !(screen_x < -margin
+                || screen_x > screen_w + margin
+                || screen_y < -margin
+                || screen_y > screen_h + margin)
+            {
                 cells_in_viewport += 1;
             }
 
@@ -143,6 +146,12 @@ impl World {
 
         // Line 2: Cells in viewport
         let line2 = format!("Cells in viewport: {}", cells_in_viewport);
-        draw_text(&line2, padding, padding + font_size + line_height, font_size, text_color);
+        draw_text(
+            &line2,
+            padding,
+            padding + font_size + line_height,
+            font_size,
+            text_color,
+        );
     }
 }

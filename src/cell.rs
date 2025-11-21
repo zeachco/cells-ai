@@ -64,8 +64,11 @@ impl Cell {
         let screen_w = screen_width();
         let screen_h = screen_height();
 
-        if screen_x < -margin || screen_x > screen_w + margin ||
-           screen_y < -margin || screen_y > screen_h + margin {
+        if screen_x < -margin
+            || screen_x > screen_w + margin
+            || screen_y < -margin
+            || screen_y > screen_h + margin
+        {
             return; // Cell is outside viewport, skip rendering
         }
 
