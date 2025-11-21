@@ -1,5 +1,7 @@
 # Cells
 
+**Live Demo:** [https://zeachco.github.io/cells-ai/](https://zeachco.github.io/cells-ai/)
+
 A Rust-based cellular simulation that compiles to WebAssembly and runs in the browser.
 
 ## Project Structure

@@ -24,6 +24,9 @@
 <body>
     <canvas id="glcanvas" tabindex='1'></canvas>
     <script src="https://not-fl3.github.io/miniquad-samples/gl.js"></script>
-    <script>load("./cells.wasm");</script>
+    <script type="module">
+        const wasmPath = import.meta.env.BASE_URL + 'cells.wasm';
+        load(wasmPath);
+    </script>
 </body>
 </html>
