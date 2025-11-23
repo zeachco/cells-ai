@@ -2,12 +2,24 @@ use crate::neural_network::NeuralNetwork;
 use crate::world::{WORLD_HEIGHT, WORLD_WIDTH};
 use macroquad::prelude::*;
 
+// Cell behavior constants
+const METABOLISM_ENERGY_LOSS: f32 = 0.03;
+const CORPSE_DECAY_RATE: f32 = 0.02;
+const TURN_ENERGY_COST: f32 = 0.45;
+const FORWARD_ENERGY_COST: f32 = 0.9;
+const GROWTH_AGE_THRESHOLD: f32 = 20.0;
+const ADULT_AGE_THRESHOLD: f32 = 30.0;
+const MAX_AGE_FOR_COST: f32 = 100.0;
+const MIN_RADIUS_PERCENT: f32 = 0.1;
+const MAX_AGE_COST_MULTIPLIER: f32 = 2.0;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CellState {
     Alive,
     Corpse,
 }
 
+#[derive(Clone)]
 pub struct Cell {
     // ===== Individual State (not inherited) =====
     pub x: f32,
@@ -19,6 +31,10 @@ pub struct Cell {
     pub angle_velocity: f32,
     pub state: CellState,
     pub age: f32, // 0 to 100+, affects energy costs and size
+
+    // ===== Stats Tracking =====
+    pub total_energy_accumulated: f32, // Total energy gained throughout lifetime
+    pub children_count: usize,         // Number of children produced
 
     // ===== Sensors =====
     // Each sensor returns: (cell_index, angle_from_front, distance, mass, is_alive)
@@ -53,6 +69,11 @@ impl Cell {
 
     // Convert RGB to HSV
     fn rgb_to_hsv(color: Color) -> (f32, f32, f32) {
+        Self::rgb_to_hsv_public(color)
+    }
+
+    // Public version for diversity calculation
+    pub fn rgb_to_hsv_public(color: Color) -> (f32, f32, f32) {
         let r = color.r;
         let g = color.g;
         let b = color.b;
@@ -101,11 +122,12 @@ impl Cell {
     }
 
     // Get current radius based on age
-    // Age 0-30: scales from 10% to 100% of base radius
-    // Age 30+: stays at 100%
+    // Age 0-ADULT_AGE_THRESHOLD: scales from MIN_RADIUS_PERCENT to 100% of base radius
+    // Age ADULT_AGE_THRESHOLD+: stays at 100%
     pub fn get_current_radius(&self) -> f32 {
-        if self.age < 30.0 {
-            let size_percent = 0.1 + (self.age / 30.0) * 0.9; // 10% to 100%
+        if self.age < ADULT_AGE_THRESHOLD {
+            let size_percent =
+                MIN_RADIUS_PERCENT + (self.age / ADULT_AGE_THRESHOLD) * (1.0 - MIN_RADIUS_PERCENT);
             self.radius * size_percent
         } else {
             self.radius
@@ -113,9 +135,9 @@ impl Cell {
     }
 
     // Get age-based energy cost multiplier
-    // Age 0-100: costs scale from 1.0x to 2.0x
+    // Age 0-MAX_AGE_FOR_COST: costs scale from 1.0x to MAX_AGE_COST_MULTIPLIER
     fn get_age_cost_multiplier(&self) -> f32 {
-        1.0 + (self.age / 100.0).min(1.0)
+        1.0 + (self.age / MAX_AGE_FOR_COST).min(1.0) * (MAX_AGE_COST_MULTIPLIER - 1.0)
     }
 
     pub fn spawn() -> Self {
@@ -142,6 +164,10 @@ impl Cell {
             angle_velocity: rand::gen_range(-0.05, 0.05),
             state: CellState::Alive,
             age: 0.0,
+
+            // Stats Tracking
+            total_energy_accumulated: 100.0, // Start with initial energy
+            children_count: 0,
 
             // Sensors
             nearest_cells: Vec::new(),
@@ -193,6 +219,10 @@ impl Cell {
             state: CellState::Alive,
             age: 0.0, // Start as newborn
 
+            // Stats Tracking
+            total_energy_accumulated: 0.0, // Start fresh
+            children_count: 0,
+
             // Sensors
             nearest_cells: Vec::new(),
 
@@ -216,8 +246,8 @@ impl Cell {
     // Each sensor returns 4 values: angle, distance, mass, is_alive
     // Total: 5 sensors × 4 values = 20 inputs
     fn normalize_sensors(&self) -> Vec<f32> {
-        let max_sensor_range = 200.0; // Match the sensor range from world.rs
-        let max_mass = 220.0; // Maximum mass value from spawn()
+        use crate::world::SENSOR_RANGE;
+        const MAX_MASS: f32 = 220.0; // Maximum mass value from spawn()
         let mut inputs = Vec::with_capacity(20);
 
         for i in 0..5 {
@@ -227,12 +257,12 @@ impl Cell {
                 // Angle: -PI..PI -> -1..1
                 let normalized_angle = angle / std::f32::consts::PI;
 
-                // Distance: 0..200 -> -1..1 (closer = higher value)
-                let normalized_distance = (max_sensor_range - distance) / max_sensor_range;
+                // Distance: 0..SENSOR_RANGE -> -1..1 (closer = higher value)
+                let normalized_distance = (SENSOR_RANGE - distance) / SENSOR_RANGE;
                 let normalized_distance = normalized_distance * 2.0 - 1.0;
 
-                // Mass: 0..220 -> -1..1 (normalized around expected range)
-                let normalized_mass = (mass / max_mass) * 2.0 - 1.0;
+                // Mass: 0..MAX_MASS -> -1..1 (normalized around expected range)
+                let normalized_mass = (mass / MAX_MASS) * 2.0 - 1.0;
 
                 // Is alive: 0 or 1 -> -1 or 1 (dead = -1, alive = 1)
                 let normalized_alive = is_alive * 2.0 - 1.0;
@@ -288,13 +318,13 @@ impl Cell {
         // Passive energy loss for all cells
         if self.state == CellState::Alive {
             // Alive cells lose energy slowly (metabolism)
-            self.energy -= 0.03;
+            self.energy -= METABOLISM_ENERGY_LOSS;
 
             // Use neural network to decide action instead of random movement
             self.decide_action();
         } else if self.state == CellState::Corpse {
-            // Corpse decay: lose 0.02 energy per tick
-            self.energy -= 0.02;
+            // Corpse decay: lose energy per tick
+            self.energy -= CORPSE_DECAY_RATE;
         }
 
         // Apply mass-based velocity slowdown
@@ -307,15 +337,22 @@ impl Cell {
         self.y += self.velocity_y * slowdown;
         self.angle += self.angle_velocity;
 
+        // Boundary wrapping (inline instead of separate pass)
+        self.x = self.x.rem_euclid(WORLD_WIDTH);
+        self.y = self.y.rem_euclid(WORLD_HEIGHT);
+
         self.velocity_y *= 0.95; // Friction
         self.velocity_x *= 0.95; // Friction
         self.angle_velocity *= 0.9; // Rotational friction
     }
 
     // Called when cell gains energy (from feeding)
-    // For young cells (age < 20), energy is lost to growth
+    // For young cells (age < GROWTH_AGE_THRESHOLD), energy is lost to growth
     pub fn gain_energy(&mut self, amount: f32) {
-        if self.age < 20.0 {
+        // Track total energy accumulated
+        self.total_energy_accumulated += amount;
+
+        if self.age < GROWTH_AGE_THRESHOLD {
             // Young cells: energy goes to growth, not stored
             // Energy is simply discarded (used for growing)
             return;
@@ -358,6 +395,10 @@ impl Cell {
             draw_circle_lines(screen_x, screen_y, current_radius, 2.0, gray_color);
         }
 
+        // Draw black dot at cell center
+        let center_dot_radius = current_radius * 0.25;
+        draw_circle(screen_x, screen_y, center_dot_radius, BLACK);
+
         // Draw a line showing the direction the cell is facing (only for alive cells)
         if self.state == CellState::Alive {
             let line_length = current_radius * 1.5;
@@ -369,7 +410,7 @@ impl Cell {
 
     pub fn turn_left(&mut self) {
         let age_multiplier = self.get_age_cost_multiplier();
-        let cost = 0.45 * age_multiplier; // 0.5 reduced by 10%
+        let cost = TURN_ENERGY_COST * age_multiplier;
         if self.energy >= cost {
             self.angle_velocity -= self.turn_rate;
             self.energy -= cost;
@@ -378,7 +419,7 @@ impl Cell {
 
     pub fn turn_right(&mut self) {
         let age_multiplier = self.get_age_cost_multiplier();
-        let cost = 0.45 * age_multiplier; // 0.5 reduced by 10%
+        let cost = TURN_ENERGY_COST * age_multiplier;
         if self.energy >= cost {
             self.angle_velocity += self.turn_rate;
             self.energy -= cost;
@@ -387,7 +428,7 @@ impl Cell {
 
     pub fn forward(&mut self) {
         let age_multiplier = self.get_age_cost_multiplier();
-        let cost = 0.9 * age_multiplier; // 1.0 reduced by 10%
+        let cost = FORWARD_ENERGY_COST * age_multiplier;
         if self.energy >= cost {
             self.velocity_x = self.angle.cos() * self.speed;
             self.velocity_y = self.angle.sin() * self.speed;

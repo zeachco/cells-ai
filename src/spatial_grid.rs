@@ -43,7 +43,11 @@ impl SpatialGrid {
     /// Queries nearby cell indices within collision range
     /// Returns indices of cells in the same bucket and neighboring buckets
     pub fn query_nearby(&self, x: f32, y: f32, radius: f32) -> Vec<usize> {
-        let mut nearby = Vec::new();
+        // Pre-allocate based on typical nearby cell count to reduce reallocations
+        let bucket_range = (radius / self.bucket_size).ceil() as i32 + 1;
+        let buckets_to_check = ((2 * bucket_range + 1) * (2 * bucket_range + 1)) as usize;
+        let estimated_capacity = buckets_to_check * 5; // Estimate 5 cells per bucket
+        let mut nearby = Vec::with_capacity(estimated_capacity);
 
         let grid_x = (x / self.bucket_size).floor() as i32;
         let grid_y = (y / self.bucket_size).floor() as i32;
