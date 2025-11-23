@@ -118,6 +118,6 @@ mod tests {
         let _nearby = grid.query_nearby(990.0, 990.0, 50.0);
         // Due to wrapping, cells near (0,0) might be considered neighbors of (1000, 1000)
         // This tests the wrapping logic works correctly
-        assert!(grid.buckets.len() > 0);
+        assert!(!grid.buckets.is_empty());
     }
 }
