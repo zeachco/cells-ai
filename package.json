@@ -8,7 +8,8 @@
     "build:wasm": "cargo build --release --target wasm32-unknown-unknown",
     "watch:wasm": "cargo watch -i .gitignore -i 'target/*' -s 'cargo build --release --target wasm32-unknown-unknown'",
     "build": "npm run build:wasm && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "lefthook install"
   },
   "repository": {
     "type": "git",
@@ -24,6 +25,7 @@
   "homepage": "https://github.com/zeachco/cells-ai#readme",
   "devDependencies": {
     "concurrently": "^9.2.1",
+    "lefthook": "^2.0.4",
     "vite": "^7.2.4"
   }
 }
