@@ -5,8 +5,8 @@ use macroquad::prelude::*;
 use rayon::prelude::*;
 use std::collections::VecDeque;
 
-pub const WORLD_WIDTH: f32 = 8000.0;
-pub const WORLD_HEIGHT: f32 = 8000.0;
+pub const WORLD_WIDTH: f32 = 3000.0;
+pub const WORLD_HEIGHT: f32 = 3000.0;
 
 // FPS performance targets
 const TARGET_MIN_FPS: f32 = 30.0;
@@ -155,8 +155,19 @@ impl World {
             self.spatial_grid.insert(cell.x, cell.y, idx);
         }
 
-        // Extract cell positions for distance calculations
-        let positions: Vec<(f32, f32)> = self.cells.iter().map(|c| (c.x, c.y)).collect();
+        // Extract cell data for sensor calculations
+        let cell_data: Vec<(f32, f32, f32, f32, f32)> = self
+            .cells
+            .iter()
+            .map(|c| {
+                let is_alive = if c.state == CellState::Alive {
+                    1.0
+                } else {
+                    0.0
+                };
+                (c.x, c.y, c.energy, c.mass, is_alive)
+            })
+            .collect();
 
         // Update sensors for each cell in parallel
         self.cells.par_iter_mut().enumerate().for_each(|(i, cell)| {
@@ -166,19 +177,19 @@ impl World {
                 .spatial_grid
                 .query_nearby(cell.x, cell.y, search_radius);
 
-            // Calculate distances to all nearby cells
-            let mut distances: Vec<(usize, f32)> = nearby_indices
+            // Calculate distances and angles to all nearby cells
+            let mut sensor_data: Vec<(usize, f32, f32, f32, f32)> = nearby_indices
                 .iter()
                 .filter_map(|&j| {
                     if i == j {
                         return None; // Skip self
                     }
 
-                    let (x2, y2) = positions[j];
+                    let (x2, y2, _energy, mass, is_alive) = cell_data[j];
 
                     // Handle wrapping distance calculation
-                    let mut dx = cell.x - x2;
-                    let mut dy = cell.y - y2;
+                    let mut dx = x2 - cell.x;
+                    let mut dy = y2 - cell.y;
 
                     // Adjust for world wrapping
                     if dx.abs() > WORLD_WIDTH / 2.0 {
@@ -190,19 +201,49 @@ impl World {
 
                     let distance = (dx * dx + dy * dy).sqrt();
 
-                    if distance <= search_radius {
-                        Some((j, distance))
-                    } else {
-                        None
+                    // Filter out cells that are too far (> 200 units)
+                    if distance > search_radius {
+                        return None;
                     }
+
+                    // Calculate angle to target relative to cell's facing direction
+                    let angle_to_target = dy.atan2(dx);
+                    let mut angle_from_front = angle_to_target - cell.angle;
+
+                    // Normalize angle to -PI..PI range
+                    while angle_from_front > std::f32::consts::PI {
+                        angle_from_front -= std::f32::consts::TAU;
+                    }
+                    while angle_from_front < -std::f32::consts::PI {
+                        angle_from_front += std::f32::consts::TAU;
+                    }
+
+                    // Return (index, angle_from_front, distance, mass, is_alive)
+                    Some((j, angle_from_front, distance, mass, is_alive))
                 })
                 .collect();
 
-            // Sort by distance and take 5 nearest
-            distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-            distances.truncate(5);
+            // Sort by: dead cells first, then alive cells, then by energy (highest first), then by distance (nearest first)
+            // Priority: dead > alive, then high energy > low energy, then close > far
+            sensor_data.sort_by(|a, b| {
+                let is_alive_a = a.4; // 1.0 if alive, 0.0 if dead
+                let is_alive_b = b.4;
+                let energy_a = cell_data[a.0].2;
+                let energy_b = cell_data[b.0].2;
 
-            cell.nearest_cells = distances;
+                // Sort by alive status ascending (0.0 before 1.0, so dead before alive)
+                // Then by energy descending, then by distance ascending
+                is_alive_a
+                    .partial_cmp(&is_alive_b)
+                    .unwrap()
+                    .then(energy_b.partial_cmp(&energy_a).unwrap())
+                    .then(a.2.partial_cmp(&b.2).unwrap())
+            });
+
+            // Take top 5
+            sensor_data.truncate(5);
+
+            cell.nearest_cells = sensor_data;
         });
     }
 
@@ -337,7 +378,7 @@ impl World {
                 continue;
             }
 
-            for &(target_idx, _distance) in &cell.nearest_cells {
+            for &(target_idx, _angle, _distance, _mass, _is_alive) in &cell.nearest_cells {
                 // Safety check: ensure target index is valid
                 if target_idx >= self.cells.len() {
                     continue;

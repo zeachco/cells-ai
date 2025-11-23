@@ -21,7 +21,12 @@ pub struct Cell {
     pub age: f32, // 0 to 100+, affects energy costs and size
 
     // ===== Sensors =====
-    pub nearest_cells: Vec<(usize, f32)>, // (cell_index, distance) for 5 nearest cells
+    // Each sensor returns: (cell_index, angle_from_front, distance, mass, is_alive)
+    // angle_from_front: -180..180 degrees relative to cell's facing direction
+    // distance: 0..200 units
+    // mass: target cell's mass (energy capacity)
+    // is_alive: 1.0 if alive, 0.0 if dead/corpse
+    pub nearest_cells: Vec<(usize, f32, f32, f32, f32)>, // (index, angle, distance, mass, is_alive) for 5 nearest cells
 
     // ===== Neural Network Brain =====
     pub brain: NeuralNetwork,
@@ -123,8 +128,8 @@ impl Cell {
         // Mass: max energy capacity, around 200 ± 10%
         let mass = rand::gen_range(180.0, 220.0);
 
-        // Create neural network: 5 inputs (sensors), 4 outputs (actions)
-        let brain = NeuralNetwork::new(5, 4);
+        // Create neural network: 20 inputs (5 sensors × 4 values), 4 outputs (actions)
+        let brain = NeuralNetwork::new(20, 4);
 
         Cell {
             // Individual State
@@ -208,19 +213,41 @@ impl Cell {
     }
 
     // Normalize sensor inputs for neural network
-    // Converts distances to values between 0.0 and 1.0
+    // Each sensor returns 4 values: angle, distance, mass, is_alive
+    // Total: 5 sensors × 4 values = 20 inputs
     fn normalize_sensors(&self) -> Vec<f32> {
         let max_sensor_range = 200.0; // Match the sensor range from world.rs
-        let mut inputs = Vec::with_capacity(5);
+        let max_mass = 220.0; // Maximum mass value from spawn()
+        let mut inputs = Vec::with_capacity(20);
 
         for i in 0..5 {
             if i < self.nearest_cells.len() {
-                let distance = self.nearest_cells[i].1;
-                // Normalize: closer cells = higher value (1.0 - distance/max_range)
-                inputs.push((max_sensor_range - distance) / max_sensor_range);
+                let (_index, angle, distance, mass, is_alive) = self.nearest_cells[i];
+
+                // Angle: -PI..PI -> -1..1
+                let normalized_angle = angle / std::f32::consts::PI;
+
+                // Distance: 0..200 -> -1..1 (closer = higher value)
+                let normalized_distance = (max_sensor_range - distance) / max_sensor_range;
+                let normalized_distance = normalized_distance * 2.0 - 1.0;
+
+                // Mass: 0..220 -> -1..1 (normalized around expected range)
+                let normalized_mass = (mass / max_mass) * 2.0 - 1.0;
+
+                // Is alive: 0 or 1 -> -1 or 1 (dead = -1, alive = 1)
+                let normalized_alive = is_alive * 2.0 - 1.0;
+
+                inputs.push(normalized_angle);
+                inputs.push(normalized_distance);
+                inputs.push(normalized_mass);
+                inputs.push(normalized_alive);
             } else {
                 // No cell detected in this sensor slot
-                inputs.push(0.0);
+                // Push default values (-1 for "nothing detected")
+                inputs.push(-1.0); // angle
+                inputs.push(-1.0); // distance (far away)
+                inputs.push(-1.0); // mass (no target)
+                inputs.push(-1.0); // is_alive (no target = dead)
             }
         }
 
