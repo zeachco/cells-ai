@@ -162,7 +162,9 @@ impl World {
         self.cells.par_iter_mut().enumerate().for_each(|(i, cell)| {
             // Query nearby cells using spatial grid
             let search_radius = 200.0; // Sensor range
-            let nearby_indices = self.spatial_grid.query_nearby(cell.x, cell.y, search_radius);
+            let nearby_indices = self
+                .spatial_grid
+                .query_nearby(cell.x, cell.y, search_radius);
 
             // Calculate distances to all nearby cells
             let mut distances: Vec<(usize, f32)> = nearby_indices
@@ -272,12 +274,7 @@ impl World {
 
                     if distance_squared < collision_distance_squared {
                         // Return (alive_idx, corpse_idx, chunk_size, species_multiplier)
-                        return Some((
-                            i,
-                            j,
-                            cell_i.energy_chunk_size,
-                            cell_i.species_multiplier,
-                        ));
+                        return Some((i, j, cell_i.energy_chunk_size, cell_i.species_multiplier));
                     }
                 }
 

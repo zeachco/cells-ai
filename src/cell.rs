@@ -234,11 +234,11 @@ impl Cell {
         let action = self.brain.get_best_action(&inputs);
 
         match action {
-            0 => {}, // No-op (do nothing)
+            0 => {} // No-op (do nothing)
             1 => self.turn_left(),
             2 => self.turn_right(),
             3 => self.forward(),
-            _ => {}, // Should never happen, but handle gracefully
+            _ => {} // Should never happen, but handle gracefully
         }
     }
 
@@ -366,15 +366,5 @@ impl Cell {
             self.velocity_y = self.angle.sin() * self.speed;
             self.energy -= cost;
         }
-    }
-
-    pub fn random_turn(&mut self) {
-        let rand_val = rand::gen_range(0.0, 1.0);
-        if rand_val < 0.33 {
-            self.turn_left();
-        } else if rand_val < 0.66 {
-            self.turn_right();
-        }
-        // Otherwise, do nothing (33% chance)
     }
 }

@@ -79,22 +79,22 @@ impl NeuralNetwork {
 
         // Compute hidden layer activations
         let mut hidden = vec![0.0; self.hidden_size];
-        for i in 0..self.hidden_size {
+        for (i, hidden_val) in hidden.iter_mut().enumerate().take(self.hidden_size) {
             let mut sum = self.bias_h[i];
-            for j in 0..self.input_size {
-                sum += self.weights_ih[i][j] * inputs[j];
+            for (j, &input) in inputs.iter().enumerate().take(self.input_size) {
+                sum += self.weights_ih[i][j] * input;
             }
-            hidden[i] = Self::relu(sum);
+            *hidden_val = Self::relu(sum);
         }
 
         // Compute output layer activations
         let mut outputs = vec![0.0; self.output_size];
-        for i in 0..self.output_size {
+        for (i, output_val) in outputs.iter_mut().enumerate().take(self.output_size) {
             let mut sum = self.bias_o[i];
-            for j in 0..self.hidden_size {
-                sum += self.weights_ho[i][j] * hidden[j];
+            for (j, &hidden_val) in hidden.iter().enumerate().take(self.hidden_size) {
+                sum += self.weights_ho[i][j] * hidden_val;
             }
-            outputs[i] = sum; // No activation on output (will use softmax or argmax)
+            *output_val = sum; // No activation on output (will use softmax or argmax)
         }
 
         outputs
@@ -189,7 +189,10 @@ mod tests {
         let original_weights = nn.weights_ih.clone();
         nn.mutate(1.0); // 100% mutation rate
         // At least some weights should have changed
-        let changed = nn.weights_ih.iter().zip(original_weights.iter())
+        let changed = nn
+            .weights_ih
+            .iter()
+            .zip(original_weights.iter())
             .any(|(a, b)| a != b);
         assert!(changed);
     }
