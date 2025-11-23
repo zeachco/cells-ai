@@ -1,6 +1,7 @@
 mod camera;
 mod cell;
 mod math;
+mod spatial_grid;
 mod world;
 
 use macroquad::prelude::*;

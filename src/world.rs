@@ -1,5 +1,6 @@
 use crate::camera::Camera;
 use crate::cell::{Cell, CellState};
+use crate::spatial_grid::SpatialGrid;
 use macroquad::prelude::*;
 use rayon::prelude::*;
 use std::collections::VecDeque;
@@ -28,6 +29,7 @@ struct CellCollisionData {
 pub struct World {
     pub cells: Vec<Cell>,
     pub camera: Camera,
+    spatial_grid: SpatialGrid,
     max_cells: usize,
     frame_times: VecDeque<f32>,
     last_adjustment_time: f32,
@@ -45,6 +47,7 @@ impl World {
         World {
             cells,
             camera: Camera::new(),
+            spatial_grid: SpatialGrid::new(WORLD_WIDTH, WORLD_HEIGHT, 100.0),
             max_cells: initial_max_cells,
             frame_times: VecDeque::with_capacity(FPS_SAMPLE_SIZE),
             last_adjustment_time: 0.0,
@@ -66,6 +69,7 @@ impl World {
 
         self.check_collisions();
         self.handle_reproduction();
+        self.update_sensors();
     }
 
     fn update_fps(&mut self, delta_time: f32) {
@@ -144,7 +148,71 @@ impl World {
         self.cells.extend(new_cells);
     }
 
+    fn update_sensors(&mut self) {
+        // Rebuild spatial grid (reuse existing grid from collision detection)
+        self.spatial_grid.clear();
+        for (idx, cell) in self.cells.iter().enumerate() {
+            self.spatial_grid.insert(cell.x, cell.y, idx);
+        }
+
+        // Extract cell positions for distance calculations
+        let positions: Vec<(f32, f32)> = self.cells.iter().map(|c| (c.x, c.y)).collect();
+
+        // Update sensors for each cell in parallel
+        self.cells.par_iter_mut().enumerate().for_each(|(i, cell)| {
+            // Query nearby cells using spatial grid
+            let search_radius = 200.0; // Sensor range
+            let nearby_indices = self.spatial_grid.query_nearby(cell.x, cell.y, search_radius);
+
+            // Calculate distances to all nearby cells
+            let mut distances: Vec<(usize, f32)> = nearby_indices
+                .iter()
+                .filter_map(|&j| {
+                    if i == j {
+                        return None; // Skip self
+                    }
+
+                    let (x2, y2) = positions[j];
+
+                    // Handle wrapping distance calculation
+                    let mut dx = cell.x - x2;
+                    let mut dy = cell.y - y2;
+
+                    // Adjust for world wrapping
+                    if dx.abs() > WORLD_WIDTH / 2.0 {
+                        dx = dx - dx.signum() * WORLD_WIDTH;
+                    }
+                    if dy.abs() > WORLD_HEIGHT / 2.0 {
+                        dy = dy - dy.signum() * WORLD_HEIGHT;
+                    }
+
+                    let distance = (dx * dx + dy * dy).sqrt();
+
+                    if distance <= search_radius {
+                        Some((j, distance))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Sort by distance and take 5 nearest
+            distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            distances.truncate(5);
+
+            cell.nearest_cells = distances;
+        });
+    }
+
     pub fn check_collisions(&mut self) {
+        // Clear and rebuild spatial grid
+        self.spatial_grid.clear();
+
+        // Insert all cells into spatial grid
+        for (idx, cell) in self.cells.iter().enumerate() {
+            self.spatial_grid.insert(cell.x, cell.y, idx);
+        }
+
         // Extract read-only collision data for parallel processing
         let collision_data: Vec<CellCollisionData> = self
             .cells
@@ -159,7 +227,8 @@ impl World {
             })
             .collect();
 
-        // Parallel collision detection - returns (alive_cell_index, corpse_cell_index, chunk_size, multiplier)
+        // Parallel collision detection using spatial grid
+        // Returns (alive_cell_index, corpse_cell_index, chunk_size, multiplier)
         let collisions: Vec<(usize, usize, f32, f32)> = (0..collision_data.len())
             .into_par_iter()
             .filter_map(|i| {
@@ -168,16 +237,37 @@ impl World {
                     return None;
                 }
 
-                // Check for collision with any corpse cell
-                for j in 0..collision_data.len() {
+                let cell_i = &collision_data[i];
+
+                // Query nearby cells using spatial grid instead of checking all cells
+                let nearby_indices = self.spatial_grid.query_nearby(
+                    cell_i.x,
+                    cell_i.y,
+                    cell_i.radius * 3.0, // Query radius (conservative estimate)
+                );
+
+                // Check for collision with nearby corpse cells only
+                for &j in &nearby_indices {
                     if i == j || collision_data[j].state == CellState::Alive {
                         continue; // Skip self and alive cells
                     }
 
-                    let dx = collision_data[i].x - collision_data[j].x;
-                    let dy = collision_data[i].y - collision_data[j].y;
+                    let cell_j = &collision_data[j];
+
+                    // Handle wrapping distance calculation
+                    let mut dx = cell_i.x - cell_j.x;
+                    let mut dy = cell_i.y - cell_j.y;
+
+                    // Adjust for world wrapping
+                    if dx.abs() > WORLD_WIDTH / 2.0 {
+                        dx = dx - dx.signum() * WORLD_WIDTH;
+                    }
+                    if dy.abs() > WORLD_HEIGHT / 2.0 {
+                        dy = dy - dy.signum() * WORLD_HEIGHT;
+                    }
+
                     let distance_squared = dx * dx + dy * dy;
-                    let collision_distance = collision_data[i].radius + collision_data[j].radius;
+                    let collision_distance = cell_i.radius + cell_j.radius;
                     let collision_distance_squared = collision_distance * collision_distance;
 
                     if distance_squared < collision_distance_squared {
@@ -185,8 +275,8 @@ impl World {
                         return Some((
                             i,
                             j,
-                            collision_data[i].energy_chunk_size,
-                            collision_data[i].species_multiplier,
+                            cell_i.energy_chunk_size,
+                            cell_i.species_multiplier,
                         ));
                     }
                 }
@@ -243,9 +333,81 @@ impl World {
         });
     }
 
+    fn render_sensor_lines(&self) {
+        for cell in &self.cells {
+            // Only draw sensors for alive cells
+            if cell.state != CellState::Alive {
+                continue;
+            }
+
+            for &(target_idx, _distance) in &cell.nearest_cells {
+                // Safety check: ensure target index is valid
+                if target_idx >= self.cells.len() {
+                    continue;
+                }
+
+                let target = &self.cells[target_idx];
+
+                // Calculate vector from cell to target
+                let mut dx = target.x - cell.x;
+                let mut dy = target.y - cell.y;
+
+                // Handle world wrapping for line drawing
+                if dx.abs() > WORLD_WIDTH / 2.0 {
+                    dx = dx - dx.signum() * WORLD_WIDTH;
+                }
+                if dy.abs() > WORLD_HEIGHT / 2.0 {
+                    dy = dy - dy.signum() * WORLD_HEIGHT;
+                }
+
+                // Calculate target position accounting for wrapping
+                let target_x = cell.x + dx;
+                let target_y = cell.y + dy;
+
+                // Calculate angle to target
+                let angle_to_target = dy.atan2(dx);
+
+                // Normalize angles to -PI to PI range
+                let mut angle_diff = angle_to_target - cell.angle;
+                while angle_diff > std::f32::consts::PI {
+                    angle_diff -= std::f32::consts::TAU;
+                }
+                while angle_diff < -std::f32::consts::PI {
+                    angle_diff += std::f32::consts::TAU;
+                }
+
+                // Calculate opacity based on how much the target is in front
+                // 0 degrees (directly in front) = full opacity
+                // ±180 degrees (directly behind) = no opacity
+                let normalized_angle = angle_diff.abs() / std::f32::consts::PI; // 0.0 to 1.0
+                let opacity = (1.0 - normalized_angle).max(0.0);
+
+                // Convert to screen coordinates
+                let x1 = cell.x - self.camera.x;
+                let y1 = cell.y - self.camera.y;
+                let x2 = target_x - self.camera.x;
+                let y2 = target_y - self.camera.y;
+
+                // Create color with opacity (use cell's color)
+                let line_color = Color::new(
+                    cell.color.r,
+                    cell.color.g,
+                    cell.color.b,
+                    opacity * 0.3, // Scale down opacity for subtlety
+                );
+
+                // Draw line
+                draw_line(x1, y1, x2, y2, 1.0, line_color);
+            }
+        }
+    }
+
     pub fn render(&self) {
         // Render boundary lines
         self.render_boundaries();
+
+        // Render sensor lines first (so they appear behind cells)
+        self.render_sensor_lines();
 
         // Count stats
         let mut cells_in_viewport = 0;
