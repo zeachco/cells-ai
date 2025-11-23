@@ -19,6 +19,9 @@ pub struct Cell {
     pub state: CellState,
     pub age: f32, // 0 to 100+, affects energy costs and size
 
+    // ===== Sensors =====
+    pub nearest_cells: Vec<(usize, f32)>, // (cell_index, distance) for 5 nearest cells
+
     // ===== Inherited Attributes (passed to children) =====
     pub color: Color,
     pub radius: f32, // Base radius (full size)
@@ -128,6 +131,9 @@ impl Cell {
             state: CellState::Alive,
             age: 0.0,
 
+            // Sensors
+            nearest_cells: Vec::new(),
+
             // Inherited Attributes
             color: Self::hsv_to_rgb(180.0, 0.8, 0.9), // Teal color (hue=180°)
             radius: rand::gen_range(6.0, 15.0),
@@ -165,6 +171,9 @@ impl Cell {
             angle_velocity: rand::gen_range(-0.05, 0.05),
             state: CellState::Alive,
             age: 0.0, // Start as newborn
+
+            // Sensors
+            nearest_cells: Vec::new(),
 
             // Inherited Attributes (from parent with 1% mutation)
             color: mutated_color,
