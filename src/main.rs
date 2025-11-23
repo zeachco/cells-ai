@@ -1,6 +1,7 @@
 mod camera;
 mod cell;
 mod math;
+mod neural_network;
 mod spatial_grid;
 mod world;
 

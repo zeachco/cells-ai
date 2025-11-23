@@ -1,3 +1,4 @@
+use crate::neural_network::NeuralNetwork;
 use crate::world::{WORLD_HEIGHT, WORLD_WIDTH};
 use macroquad::prelude::*;
 
@@ -21,6 +22,9 @@ pub struct Cell {
 
     // ===== Sensors =====
     pub nearest_cells: Vec<(usize, f32)>, // (cell_index, distance) for 5 nearest cells
+
+    // ===== Neural Network Brain =====
+    pub brain: NeuralNetwork,
 
     // ===== Inherited Attributes (passed to children) =====
     pub color: Color,
@@ -119,6 +123,9 @@ impl Cell {
         // Mass: max energy capacity, around 200 ± 10%
         let mass = rand::gen_range(180.0, 220.0);
 
+        // Create neural network: 5 inputs (sensors), 4 outputs (actions)
+        let brain = NeuralNetwork::new(5, 4);
+
         Cell {
             // Individual State
             x: rand::gen_range(0.0, WORLD_WIDTH),
@@ -133,6 +140,9 @@ impl Cell {
 
             // Sensors
             nearest_cells: Vec::new(),
+
+            // Neural Network Brain
+            brain,
 
             // Inherited Attributes
             color: Self::hsv_to_rgb(180.0, 0.8, 0.9), // Teal color (hue=180°)
@@ -160,6 +170,12 @@ impl Cell {
         let mutated_hue = (h + h * hue_variance).rem_euclid(360.0); // Wrap around at 360°
         let mutated_color = Self::hsv_to_rgb(mutated_hue, s, v);
 
+        // Clone and mutate the parent's brain
+        // Mutation rate varies randomly between 1% and 10%
+        let mutation_rate = rand::gen_range(0.01, 0.10);
+        let mut brain = self.brain.clone();
+        brain.mutate(mutation_rate);
+
         Cell {
             // Individual State
             x: self.x + angle.cos() * offset,
@@ -175,6 +191,9 @@ impl Cell {
             // Sensors
             nearest_cells: Vec::new(),
 
+            // Neural Network Brain (inherited and mutated)
+            brain,
+
             // Inherited Attributes (from parent with 1% mutation)
             color: mutated_color,
             radius: Self::mutate(self.radius, 6.0, 15.0),
@@ -185,6 +204,41 @@ impl Cell {
             energy_chunk_size: Self::mutate(self.energy_chunk_size, 45.0, 55.0),
             species_multiplier: Self::mutate(self.species_multiplier, 0.9, 2.0),
             mass: Self::mutate(self.mass, 180.0, 220.0),
+        }
+    }
+
+    // Normalize sensor inputs for neural network
+    // Converts distances to values between 0.0 and 1.0
+    fn normalize_sensors(&self) -> Vec<f32> {
+        let max_sensor_range = 200.0; // Match the sensor range from world.rs
+        let mut inputs = Vec::with_capacity(5);
+
+        for i in 0..5 {
+            if i < self.nearest_cells.len() {
+                let distance = self.nearest_cells[i].1;
+                // Normalize: closer cells = higher value (1.0 - distance/max_range)
+                inputs.push((max_sensor_range - distance) / max_sensor_range);
+            } else {
+                // No cell detected in this sensor slot
+                inputs.push(0.0);
+            }
+        }
+
+        inputs
+    }
+
+    // Make a decision using the neural network
+    // Actions: 0 = no-op, 1 = turn_left, 2 = turn_right, 3 = forward
+    fn decide_action(&mut self) {
+        let inputs = self.normalize_sensors();
+        let action = self.brain.get_best_action(&inputs);
+
+        match action {
+            0 => {}, // No-op (do nothing)
+            1 => self.turn_left(),
+            2 => self.turn_right(),
+            3 => self.forward(),
+            _ => {}, // Should never happen, but handle gracefully
         }
     }
 
@@ -209,13 +263,8 @@ impl Cell {
             // Alive cells lose energy slowly (metabolism)
             self.energy -= 0.03;
 
-            // Only allow active movement if cell is alive
-            if rand::gen_range(0.0, 1.0) < self.move_probability {
-                self.forward();
-            }
-            if rand::gen_range(0.0, 1.0) < self.turn_probability {
-                self.random_turn();
-            }
+            // Use neural network to decide action instead of random movement
+            self.decide_action();
         } else if self.state == CellState::Corpse {
             // Corpse decay: lose 0.02 energy per tick
             self.energy -= 0.02;
