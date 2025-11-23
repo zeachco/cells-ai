@@ -43,7 +43,7 @@ impl Camera {
         }
     }
 
-    pub fn handle_input(&mut self, delta_time: f32) {
+    pub fn handle_input(&mut self, delta_time: f32, skip_mouse_input: bool) {
         // WASD for movement
         if is_key_down(KeyCode::W) {
             self.target_y -= self.move_speed * delta_time;
@@ -67,44 +67,47 @@ impl Camera {
         }
 
         // Mouse/touch drag for camera movement (direct, with momentum on release)
-        let mouse_pos = mouse_position();
+        // Skip mouse input if requested (e.g., when clicking on UI elements)
+        if !skip_mouse_input {
+            let mouse_pos = mouse_position();
 
-        if is_mouse_button_pressed(MouseButton::Left) {
-            // Start dragging
-            self.is_dragging = true;
-            self.last_mouse_x = mouse_pos.0;
-            self.last_mouse_y = mouse_pos.1;
-            self.last_drag_delta_x = 0.0;
-            self.last_drag_delta_y = 0.0;
-        }
+            if is_mouse_button_pressed(MouseButton::Left) {
+                // Start dragging
+                self.is_dragging = true;
+                self.last_mouse_x = mouse_pos.0;
+                self.last_mouse_y = mouse_pos.1;
+                self.last_drag_delta_x = 0.0;
+                self.last_drag_delta_y = 0.0;
+            }
 
-        if is_mouse_button_down(MouseButton::Left) && self.is_dragging {
-            // Calculate delta movement
-            let delta_x = mouse_pos.0 - self.last_mouse_x;
-            let delta_y = mouse_pos.1 - self.last_mouse_y;
+            if is_mouse_button_down(MouseButton::Left) && self.is_dragging {
+                // Calculate delta movement
+                let delta_x = mouse_pos.0 - self.last_mouse_x;
+                let delta_y = mouse_pos.1 - self.last_mouse_y;
 
-            // Move camera directly in opposite direction (no velocity/interpolation)
-            self.x -= delta_x;
-            self.y -= delta_y;
-            self.target_x = self.x;
-            self.target_y = self.y;
+                // Move camera directly in opposite direction (no velocity/interpolation)
+                self.x -= delta_x;
+                self.y -= delta_y;
+                self.target_x = self.x;
+                self.target_y = self.y;
 
-            // Store delta for momentum
-            self.last_drag_delta_x = delta_x;
-            self.last_drag_delta_y = delta_y;
+                // Store delta for momentum
+                self.last_drag_delta_x = delta_x;
+                self.last_drag_delta_y = delta_y;
 
-            // Update last position
-            self.last_mouse_x = mouse_pos.0;
-            self.last_mouse_y = mouse_pos.1;
-        }
+                // Update last position
+                self.last_mouse_x = mouse_pos.0;
+                self.last_mouse_y = mouse_pos.1;
+            }
 
-        if is_mouse_button_released(MouseButton::Left) && self.is_dragging {
-            // Stop dragging and apply momentum
-            self.is_dragging = false;
+            if is_mouse_button_released(MouseButton::Left) && self.is_dragging {
+                // Stop dragging and apply momentum
+                self.is_dragging = false;
 
-            // Apply momentum based on last drag delta
-            self.target_x = self.x - self.last_drag_delta_x;
-            self.target_y = self.y - self.last_drag_delta_y;
+                // Apply momentum based on last drag delta
+                self.target_x = self.x - self.last_drag_delta_x;
+                self.target_y = self.y - self.last_drag_delta_y;
+            }
         }
 
         // Trackpad/scroll wheel for camera movement (direct, with momentum)

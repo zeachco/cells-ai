@@ -1,12 +1,13 @@
 use crate::camera::Camera;
 use crate::cell::{Cell, CellState};
 use crate::spatial_grid::SpatialGrid;
+use crate::stats::Stats;
 use macroquad::prelude::*;
 use rayon::prelude::*;
 use std::collections::VecDeque;
 
-pub const WORLD_WIDTH: f32 = 3000.0;
-pub const WORLD_HEIGHT: f32 = 3000.0;
+pub const WORLD_WIDTH: f32 = 8000.0;
+pub const WORLD_HEIGHT: f32 = 7000.0;
 
 // FPS performance targets
 const TARGET_MIN_FPS: f32 = 30.0;
@@ -14,6 +15,15 @@ const TARGET_MAX_FPS: f32 = 240.0;
 const FPS_SAMPLE_SIZE: usize = 60; // Track last 60 frames
 const ADJUSTMENT_INTERVAL: f32 = 2.0; // Adjust cap every 2 seconds
 const CELL_CAP_STEP: usize = 100; // Adjust cap by 100 cells at a time
+
+// World simulation constants
+const INITIAL_CELL_COUNT: usize = 2500;
+pub const SENSOR_RANGE: f32 = 200.0; // Public so cells can normalize sensor inputs
+const SENSOR_COUNT: usize = 5;
+const REPRODUCTION_ENERGY_THRESHOLD: f32 = 100.0;
+const CHILD_ENERGY_RATIO: f32 = 2.0 / 3.0;
+const PARENT_ENERGY_RATIO: f32 = 1.0 / 3.0;
+const DEPLETED_CELL_ENERGY: f32 = -100.0;
 
 // Read-only cell data for parallel collision detection
 #[derive(Clone, Copy)]
@@ -34,13 +44,21 @@ pub struct World {
     frame_times: VecDeque<f32>,
     last_adjustment_time: f32,
     current_fps: f32,
+    pub stats: Stats,
+    best_cell_genome: Option<Cell>, // Store the complete best cell for respawning
+    last_best_cell_index: Option<usize>, // Track last best cell to avoid redundant clones
+    selected_cell_index: Option<usize>, // Currently selected cell for highlighting
+    // Simulation controls
+    pub paused: bool,
+    pub simulation_speed: f32, // 1.0 = normal, 0.5 = half speed, 2.0 = double speed
+    // Diversity tracking
+    pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
 }
 
 impl World {
     pub fn spawn() -> Self {
         let mut cells = Vec::new();
-        let initial_max_cells = 2500;
-        for _ in 0..initial_max_cells {
+        for _ in 0..INITIAL_CELL_COUNT {
             cells.push(Cell::spawn());
         }
 
@@ -48,28 +66,170 @@ impl World {
             cells,
             camera: Camera::new(),
             spatial_grid: SpatialGrid::new(WORLD_WIDTH, WORLD_HEIGHT, 100.0),
-            max_cells: initial_max_cells,
+            max_cells: INITIAL_CELL_COUNT,
             frame_times: VecDeque::with_capacity(FPS_SAMPLE_SIZE),
             last_adjustment_time: 0.0,
             current_fps: 60.0, // Initial estimate
+            stats: Stats::new(),
+            best_cell_genome: None,
+            last_best_cell_index: None,
+            selected_cell_index: None,
+            paused: false,
+            simulation_speed: 1.0,
+            color_diversity: 0.0,
+        }
+    }
+
+    // Reset the world with spawns from the best cell's genome
+    pub fn respawn_from_best(&mut self) {
+        if let Some(best_cell) = &self.best_cell_genome {
+            // Clear current cells
+            self.cells.clear();
+
+            // Spawn new cells based on the best cell's genome
+            let spawn_count = self.max_cells.min(INITIAL_CELL_COUNT);
+            for _ in 0..spawn_count {
+                let mut new_cell = best_cell.spawn_child();
+
+                // Randomize position across the entire map
+                new_cell.x = rand::gen_range(0.0, WORLD_WIDTH);
+                new_cell.y = rand::gen_range(0.0, WORLD_HEIGHT);
+
+                // Give them starting energy
+                new_cell.energy = 100.0;
+
+                self.cells.push(new_cell);
+            }
+
+            println!(
+                "World reset! Spawned {} cells from best genome (fitness: {:.1})",
+                spawn_count,
+                best_cell.total_energy_accumulated + (best_cell.children_count as f32 * 100.0)
+            );
         }
     }
 
     pub fn update(&mut self, delta_time: f32) {
+        // Handle keyboard controls
+        self.handle_keyboard_input();
+
         // Update FPS tracking
         self.update_fps(delta_time);
+
+        // Skip simulation if paused
+        if self.paused {
+            return;
+        }
+
+        // Note: simulation_speed affects how many updates we process
+        // For simplicity, we just run more/fewer frames naturally with FPS changes
 
         // Adjust max_cells cap based on FPS
         self.adjust_cell_cap();
 
-        // Parallel cell updates
+        // Parallel cell updates (speed affects energy costs and movement)
+        // Note: For simplicity, we update normally and accept speed affects FPS
         self.cells.par_iter_mut().for_each(|cell| {
             cell.update();
         });
 
+        // Build spatial grid for collision detection
+        self.rebuild_spatial_grid();
         self.check_collisions();
+
         self.handle_reproduction();
+
+        // Rebuild spatial grid after collisions/reproduction changed cell array
+        self.rebuild_spatial_grid();
         self.update_sensors();
+
+        self.update_stats();
+
+        // Check for extinction and respawn if needed (after stats to ensure best_cell_genome is set)
+        // Count alive cells
+        let alive_count = self
+            .cells
+            .iter()
+            .filter(|c| c.state == CellState::Alive)
+            .count();
+        if alive_count == 0 && self.best_cell_genome.is_some() {
+            self.respawn_from_best();
+        }
+
+        // Update camera to follow selected cell if stats box is selected
+        if let Some((x, y)) = self.stats.get_selected_position() {
+            // Center the camera on the selected cell using 10% of the delta
+            let screen_w = screen_width();
+            let screen_h = screen_height();
+            let target_camera_x = x - screen_w / 2.0;
+            let target_camera_y = y - screen_h / 2.0;
+
+            // Calculate delta (distance to target)
+            let delta_x = target_camera_x - self.camera.x;
+            let delta_y = target_camera_y - self.camera.y;
+
+            // Move camera by 10% of the delta
+            self.camera.target_x = self.camera.x + delta_x * 0.1;
+            self.camera.target_y = self.camera.y + delta_y * 0.1;
+        }
+    }
+
+    // Handle mouse clicks on the stats box
+    pub fn handle_stats_click(&mut self) {
+        if is_mouse_button_pressed(MouseButton::Left) {
+            let mouse_pos = mouse_position();
+            if self.stats.is_mouse_over(mouse_pos.0, mouse_pos.1) {
+                self.stats.toggle_selection();
+            }
+        }
+    }
+
+    // Handle keyboard input for simulation controls
+    fn handle_keyboard_input(&mut self) {
+        // Space: Toggle pause
+        if is_key_pressed(KeyCode::Space) {
+            self.paused = !self.paused;
+            println!(
+                "Simulation {}",
+                if self.paused { "PAUSED" } else { "RESUMED" }
+            );
+        }
+
+        // R: Manual reset with best genome
+        if is_key_pressed(KeyCode::R) {
+            if self.best_cell_genome.is_some() {
+                self.respawn_from_best();
+                println!("Manual reset triggered");
+            } else {
+                println!("No best genome available for reset");
+            }
+        }
+
+        // + or =: Increase speed
+        if is_key_pressed(KeyCode::Equal) || is_key_pressed(KeyCode::KpAdd) {
+            self.simulation_speed = (self.simulation_speed * 1.5).min(8.0);
+            println!("Simulation speed: {:.1}x", self.simulation_speed);
+        }
+
+        // - or _: Decrease speed
+        if is_key_pressed(KeyCode::Minus) || is_key_pressed(KeyCode::KpSubtract) {
+            self.simulation_speed = (self.simulation_speed / 1.5).max(0.125);
+            println!("Simulation speed: {:.1}x", self.simulation_speed);
+        }
+
+        // 1: Reset to normal speed
+        if is_key_pressed(KeyCode::Key1) {
+            self.simulation_speed = 1.0;
+            println!("Simulation speed: 1.0x (normal)");
+        }
+    }
+
+    // Rebuild spatial grid with all current cell positions
+    fn rebuild_spatial_grid(&mut self) {
+        self.spatial_grid.clear();
+        for (idx, cell) in self.cells.iter().enumerate() {
+            self.spatial_grid.insert(cell.x, cell.y, idx);
+        }
     }
 
     fn update_fps(&mut self, delta_time: f32) {
@@ -121,7 +281,7 @@ impl World {
         let current_cell_count = self.cells.len();
 
         for cell in &mut self.cells {
-            if cell.energy > 100.0 {
+            if cell.energy > REPRODUCTION_ENERGY_THRESHOLD {
                 // Check if we're at or over the max_cells cap
                 let projected_count = current_cell_count + new_cells.len();
                 if projected_count >= self.max_cells {
@@ -129,18 +289,19 @@ impl World {
                     continue;
                 }
 
-                // Calculate energy distribution: 2/3 to child, 1/3 to parent
+                // Calculate energy distribution
                 let total_energy = cell.energy;
-                let child_energy = (total_energy * 2.0) / 3.0;
-                let parent_energy = total_energy / 3.0;
+                let child_energy = total_energy * CHILD_ENERGY_RATIO;
+                let parent_energy = total_energy * PARENT_ENERGY_RATIO;
 
                 // Create child cell
                 let mut child = cell.spawn_child();
                 child.energy = child_energy;
                 new_cells.push(child);
 
-                // Update parent energy
+                // Update parent energy and increment children count
                 cell.energy = parent_energy;
+                cell.children_count += 1;
             }
         }
 
@@ -149,12 +310,7 @@ impl World {
     }
 
     fn update_sensors(&mut self) {
-        // Rebuild spatial grid (reuse existing grid from collision detection)
-        self.spatial_grid.clear();
-        for (idx, cell) in self.cells.iter().enumerate() {
-            self.spatial_grid.insert(cell.x, cell.y, idx);
-        }
-
+        // Spatial grid already built in update(), reuse it
         // Extract cell data for sensor calculations
         let cell_data: Vec<(f32, f32, f32, f32, f32)> = self
             .cells
@@ -172,10 +328,7 @@ impl World {
         // Update sensors for each cell in parallel
         self.cells.par_iter_mut().enumerate().for_each(|(i, cell)| {
             // Query nearby cells using spatial grid
-            let search_radius = 200.0; // Sensor range
-            let nearby_indices = self
-                .spatial_grid
-                .query_nearby(cell.x, cell.y, search_radius);
+            let nearby_indices = self.spatial_grid.query_nearby(cell.x, cell.y, SENSOR_RANGE);
 
             // Calculate distances and angles to all nearby cells
             let mut sensor_data: Vec<(usize, f32, f32, f32, f32)> = nearby_indices
@@ -183,6 +336,11 @@ impl World {
                 .filter_map(|&j| {
                     if i == j {
                         return None; // Skip self
+                    }
+
+                    // Bounds check for safety
+                    if j >= cell_data.len() {
+                        return None;
                     }
 
                     let (x2, y2, _energy, mass, is_alive) = cell_data[j];
@@ -201,8 +359,8 @@ impl World {
 
                     let distance = (dx * dx + dy * dy).sqrt();
 
-                    // Filter out cells that are too far (> 200 units)
-                    if distance > search_radius {
+                    // Filter out cells that are too far
+                    if distance > SENSOR_RANGE {
                         return None;
                     }
 
@@ -223,39 +381,120 @@ impl World {
                 })
                 .collect();
 
-            // Sort by: dead cells first, then alive cells, then by energy (highest first), then by distance (nearest first)
+            // Use partial sort to get top SENSOR_COUNT without sorting the entire vec
             // Priority: dead > alive, then high energy > low energy, then close > far
-            sensor_data.sort_by(|a, b| {
-                let is_alive_a = a.4; // 1.0 if alive, 0.0 if dead
-                let is_alive_b = b.4;
-                let energy_a = cell_data[a.0].2;
-                let energy_b = cell_data[b.0].2;
+            if sensor_data.len() > SENSOR_COUNT {
+                // Use select_nth_unstable to partition around the (SENSOR_COUNT-1)th element
+                // This partitions so elements [0..SENSOR_COUNT] are the smallest/best
+                sensor_data.select_nth_unstable_by(SENSOR_COUNT - 1, |a, b| {
+                    let is_alive_a = a.4; // 1.0 if alive, 0.0 if dead
+                    let is_alive_b = b.4;
+                    let energy_a = cell_data.get(a.0).map(|d| d.2).unwrap_or(0.0);
+                    let energy_b = cell_data.get(b.0).map(|d| d.2).unwrap_or(0.0);
 
-                // Sort by alive status ascending (0.0 before 1.0, so dead before alive)
-                // Then by energy descending, then by distance ascending
-                is_alive_a
-                    .partial_cmp(&is_alive_b)
-                    .unwrap()
-                    .then(energy_b.partial_cmp(&energy_a).unwrap())
-                    .then(a.2.partial_cmp(&b.2).unwrap())
-            });
-
-            // Take top 5
-            sensor_data.truncate(5);
+                    // Sort by alive status ascending (0.0 before 1.0, so dead before alive)
+                    // Then by energy descending, then by distance ascending
+                    is_alive_a
+                        .partial_cmp(&is_alive_b)
+                        .unwrap()
+                        .then(energy_b.partial_cmp(&energy_a).unwrap())
+                        .then(a.2.partial_cmp(&b.2).unwrap())
+                });
+                // Keep only the top SENSOR_COUNT
+                sensor_data.truncate(SENSOR_COUNT);
+            }
 
             cell.nearest_cells = sensor_data;
         });
     }
 
-    pub fn check_collisions(&mut self) {
-        // Clear and rebuild spatial grid
-        self.spatial_grid.clear();
+    fn update_stats(&mut self) {
+        // First, find the cell with the highest fitness (only alive cells)
+        let mut best_fitness = f32::MIN;
+        let mut best_cell_index = None;
+        let mut alive_cells = Vec::new();
 
-        // Insert all cells into spatial grid
-        for (idx, cell) in self.cells.iter().enumerate() {
-            self.spatial_grid.insert(cell.x, cell.y, idx);
+        for (i, cell) in self.cells.iter().enumerate() {
+            // Only consider alive cells
+            if cell.state == CellState::Alive {
+                alive_cells.push(cell);
+
+                // Use same fitness calculation as Stats
+                let fitness = cell.total_energy_accumulated + (cell.children_count as f32 * 100.0);
+                if fitness > best_fitness {
+                    best_fitness = fitness;
+                    best_cell_index = Some(i);
+                }
+            }
         }
 
+        // Calculate color diversity (hue variance)
+        if alive_cells.len() > 1 {
+            let hues: Vec<f32> = alive_cells
+                .iter()
+                .map(|cell| {
+                    let (h, _, _) = Cell::rgb_to_hsv_public(cell.color);
+                    h
+                })
+                .collect();
+
+            // Calculate variance of hues
+            let mean_hue: f32 = hues.iter().sum::<f32>() / hues.len() as f32;
+            let variance: f32 = hues
+                .iter()
+                .map(|h| {
+                    let diff = (h - mean_hue).abs();
+                    // Handle wraparound (hue is 0-360)
+                    let diff = if diff > 180.0 { 360.0 - diff } else { diff };
+                    diff * diff
+                })
+                .sum::<f32>()
+                / hues.len() as f32;
+
+            // Normalize diversity to 0-1 (max variance is ~180^2)
+            self.color_diversity = (variance / (180.0 * 180.0)).min(1.0);
+        } else {
+            self.color_diversity = 0.0;
+        }
+
+        // Update stats and genome with the best cell only, or clear if no alive cells
+        if let Some(index) = best_cell_index {
+            let best_cell = &self.cells[index];
+
+            // Only clone the best cell's genome if it changed (avoid expensive clone every frame)
+            if self.last_best_cell_index != Some(index) {
+                self.best_cell_genome = Some(best_cell.clone());
+                self.last_best_cell_index = Some(index);
+            }
+
+            // Set stats to show the current best alive cell
+            self.stats.set(crate::stats::BestCellStats {
+                total_energy_accumulated: best_cell.total_energy_accumulated,
+                current_energy: best_cell.energy,
+                children_count: best_cell.children_count,
+                color: best_cell.color,
+                age: best_cell.age,
+                x: best_cell.x,
+                y: best_cell.y,
+                is_alive: true, // is_alive is guaranteed true since we filtered for it
+            });
+
+            // Update selected cell index if stats are selected
+            if self.stats.is_selected() {
+                self.selected_cell_index = Some(index);
+            } else {
+                self.selected_cell_index = None;
+            }
+        } else {
+            // No alive cells found, clear the stats
+            self.stats.clear();
+            self.last_best_cell_index = None;
+            self.selected_cell_index = None;
+        }
+    }
+
+    pub fn check_collisions(&mut self) {
+        // Spatial grid already built in update(), reuse it
         // Extract read-only collision data for parallel processing
         let collision_data: Vec<CellCollisionData> = self
             .cells
@@ -331,13 +570,13 @@ impl World {
             self.cells[*corpse_idx].energy -= chunk_size;
         }
 
-        // Collect cells with energy < -100 to remove
+        // Collect cells with energy below threshold to remove
         let mut indices_to_remove: Vec<usize> = self
             .cells
             .iter()
             .enumerate()
             .filter_map(|(idx, cell)| {
-                if cell.energy < -100.0 {
+                if cell.energy < DEPLETED_CELL_ENERGY {
                     Some(idx)
                 } else {
                     None
@@ -353,22 +592,7 @@ impl World {
             self.cells.swap_remove(idx);
         }
 
-        // Parallel boundary wrapping
-        self.cells.par_iter_mut().for_each(|cell| {
-            // Wrap horizontally
-            if cell.x < 0.0 {
-                cell.x += WORLD_WIDTH;
-            } else if cell.x > WORLD_WIDTH {
-                cell.x -= WORLD_WIDTH;
-            }
-
-            // Wrap vertically
-            if cell.y < 0.0 {
-                cell.y += WORLD_HEIGHT;
-            } else if cell.y > WORLD_HEIGHT {
-                cell.y -= WORLD_HEIGHT;
-            }
-        });
+        // Boundary wrapping now handled inline in cell.update()
     }
 
     fn render_sensor_lines(&self) {
@@ -453,7 +677,7 @@ impl World {
         let screen_h = screen_height();
 
         // Render cells and count viewport cells
-        for cell in &self.cells {
+        for (idx, cell) in self.cells.iter().enumerate() {
             // Check if cell is in viewport
             let screen_x = cell.x - self.camera.x;
             let screen_y = cell.y - self.camera.y;
@@ -467,11 +691,28 @@ impl World {
                 cells_in_viewport += 1;
             }
 
+            // Render the cell
             cell.render(self.camera.x, self.camera.y);
+
+            // Draw gold stroke around selected cell
+            if self.selected_cell_index == Some(idx) {
+                let current_radius = cell.get_current_radius();
+                let gold = Color::new(1.0, 0.84, 0.0, 1.0); // Gold color
+                draw_circle_lines(
+                    screen_x,
+                    screen_y,
+                    current_radius + 3.0, // Slightly larger than cell
+                    4.0,                  // Thickness
+                    gold,
+                );
+            }
         }
 
         // Render stats
         self.render_stats(cells_in_viewport);
+
+        // Render best cell stats (top-right corner)
+        self.stats.render();
     }
 
     fn render_boundaries(&self) {
@@ -563,6 +804,48 @@ impl World {
             padding + font_size + line_height * 2.0,
             font_size,
             text_color,
+        );
+
+        // Line 4: Simulation state (paused/speed)
+        let state_text = if self.paused {
+            format!("PAUSED (Speed: {:.1}x)", self.simulation_speed)
+        } else {
+            format!("Speed: {:.1}x", self.simulation_speed)
+        };
+        let state_color = if self.paused { YELLOW } else { WHITE };
+        draw_text(
+            &state_text,
+            padding,
+            padding + font_size + line_height * 3.0,
+            font_size,
+            state_color,
+        );
+
+        // Line 5: Diversity metric
+        let diversity_text = format!("Diversity: {:.1}%", self.color_diversity * 100.0);
+        let diversity_color = if self.color_diversity < 0.2 {
+            Color::new(1.0, 0.5, 0.5, 1.0) // Low diversity warning (red-ish)
+        } else {
+            Color::new(0.5, 1.0, 0.5, 1.0) // Good diversity (green-ish)
+        };
+        draw_text(
+            &diversity_text,
+            padding,
+            padding + font_size + line_height * 4.0,
+            font_size,
+            diversity_color,
+        );
+
+        // Controls help (bottom-left)
+        let help_y = screen_height() - padding - font_size * 3.0;
+        let help_font_size = 18.0;
+        let help_color = Color::new(0.7, 0.7, 0.7, 1.0);
+        draw_text(
+            "Controls: SPACE=Pause | R=Reset | +/-=Speed | 1=Normal Speed",
+            padding,
+            help_y,
+            help_font_size,
+            help_color,
         );
     }
 }
