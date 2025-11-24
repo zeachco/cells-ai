@@ -164,11 +164,15 @@ impl NeuralNetwork {
     }
 
     /// Serialize the neural network to JSON
+    /// Note: Currently unused - the codebase serializes SavedBrain structs directly.
+    /// Kept for API symmetry with from_json() which is used for legacy format migration.
+    #[allow(dead_code)]
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
 
     /// Deserialize the neural network from JSON
+    /// Used in storage.rs for backward compatibility with legacy save formats.
     pub fn from_json(json: &str) -> Option<Self> {
         serde_json::from_str(json).ok()
     }

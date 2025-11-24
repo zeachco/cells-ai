@@ -306,7 +306,7 @@ impl World {
 
                 // Save neural network if this is the best cell reproducing
                 if Some(idx) == best_cell_idx {
-                    crate::storage::save_best_neural_network(&cell.brain);
+                    crate::storage::save_best_neural_network(&cell.brain, cell.generation);
                 }
             }
         }
@@ -478,6 +478,7 @@ impl World {
                 total_energy_accumulated: best_cell.total_energy_accumulated,
                 current_energy: best_cell.energy,
                 children_count: best_cell.children_count,
+                generation: best_cell.generation,
                 color: best_cell.color,
                 age: best_cell.age,
                 x: best_cell.x,

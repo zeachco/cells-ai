@@ -5,6 +5,7 @@ pub struct BestCellStats {
     pub total_energy_accumulated: f32,
     pub current_energy: f32,
     pub children_count: usize,
+    pub generation: usize,
     pub color: Color,
     pub age: f32,
     pub x: f32,
@@ -54,8 +55,9 @@ impl Stats {
         let title = "Best Cell:";
         let line1 = "Energy: 999999.9"; // Max width estimate
         let line2 = "Children: 99999";
-        let line3 = "Age: 999.9";
-        let line4 = "Fitness: 999999.9";
+        let line3 = "Generation: 99999";
+        let line4 = "Age: 999.9";
+        let line5 = "Fitness: 999999.9";
 
         let max_width = [
             measure_text(title, None, font_size as u16, 1.0).width,
@@ -63,6 +65,7 @@ impl Stats {
             measure_text(line2, None, font_size as u16, 1.0).width,
             measure_text(line3, None, font_size as u16, 1.0).width,
             measure_text(line4, None, font_size as u16, 1.0).width,
+            measure_text(line5, None, font_size as u16, 1.0).width,
         ]
         .iter()
         .cloned()
@@ -72,7 +75,7 @@ impl Stats {
         let bg_x = screen_w - max_width - padding - bg_padding * 2.0;
         let bg_y = padding - bg_padding;
         let bg_width = max_width + bg_padding * 2.0;
-        let bg_height = line_height * 5.0 + bg_padding;
+        let bg_height = line_height * 6.0 + bg_padding;
 
         Some((bg_x, bg_y, bg_width, bg_height))
     }
@@ -123,10 +126,11 @@ impl Stats {
             let title = "Best Cell:";
             let line1 = format!("Energy: {:.1}", best.current_energy);
             let line2 = format!("Children: {}", best.children_count);
-            let line3 = format!("Age: {:.1}", best.age);
+            let line3 = format!("Generation: {}", best.generation);
+            let line4 = format!("Age: {:.1}", best.age);
             let fitness =
                 Self::calculate_fitness(best.total_energy_accumulated, best.children_count);
-            let line4 = format!("Fitness: {:.1}", fitness);
+            let line5 = format!("Fitness: {:.1}", fitness);
 
             // Find the longest line for background width
             let max_width = [
@@ -135,6 +139,7 @@ impl Stats {
                 measure_text(&line2, None, font_size as u16, 1.0).width,
                 measure_text(&line3, None, font_size as u16, 1.0).width,
                 measure_text(&line4, None, font_size as u16, 1.0).width,
+                measure_text(&line5, None, font_size as u16, 1.0).width,
             ]
             .iter()
             .cloned()
@@ -145,7 +150,7 @@ impl Stats {
             let bg_x = screen_w - max_width - padding - bg_padding * 2.0;
             let bg_y = padding - bg_padding;
             let bg_width = max_width + bg_padding * 2.0;
-            let bg_height = line_height * 5.0 + bg_padding;
+            let bg_height = line_height * 6.0 + bg_padding;
 
             draw_rectangle(
                 bg_x,
@@ -207,6 +212,13 @@ impl Stats {
                 &line4,
                 x,
                 padding + font_size + line_height * 4.0,
+                font_size,
+                WHITE,
+            );
+            draw_text(
+                &line5,
+                x,
+                padding + font_size + line_height * 5.0,
                 font_size,
                 WHITE,
             );

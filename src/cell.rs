@@ -35,6 +35,7 @@ pub struct Cell {
     // ===== Stats Tracking =====
     pub total_energy_accumulated: f32, // Total energy gained throughout lifetime
     pub children_count: usize,         // Number of children produced
+    pub generation: usize,             // Generation count (0 for initial, 1+ for descendants)
 
     // ===== Sensors =====
     // Each sensor returns: (cell_index, angle_from_front, distance, mass, is_alive)
@@ -153,16 +154,17 @@ impl Cell {
         // Try to load saved neural network from storage
         // If available, use it as the base and apply small mutations
         // Otherwise, create a new random network
-        let brain = if let Some(saved_brain) = crate::storage::load_best_neural_network() {
-            let mut brain = saved_brain;
-            // Apply small mutation (1-5%) to add variance
-            let mutation_rate = rand::gen_range(0.01, 0.05);
-            brain.mutate(mutation_rate);
-            brain
-        } else {
-            // No saved brain, create new random network
-            NeuralNetwork::new(20, 4)
-        };
+        let (brain, loaded_generation) =
+            if let Some((saved_brain, generation)) = crate::storage::load_best_neural_network() {
+                let mut brain = saved_brain;
+                // Apply small mutation (1-5%) to add variance
+                let mutation_rate = rand::gen_range(0.01, 0.05);
+                brain.mutate(mutation_rate);
+                (brain, generation)
+            } else {
+                // No saved brain, create new random network
+                (NeuralNetwork::new(20, 4), 0)
+            };
 
         Cell {
             // Individual State
@@ -179,6 +181,7 @@ impl Cell {
             // Stats Tracking
             total_energy_accumulated: 100.0, // Start with initial energy
             children_count: 0,
+            generation: loaded_generation, // Use loaded generation from saved brain
 
             // Sensors
             nearest_cells: Vec::new(),
@@ -233,6 +236,7 @@ impl Cell {
             // Stats Tracking
             total_energy_accumulated: 0.0, // Start fresh
             children_count: 0,
+            generation: self.generation + 1, // Increment generation
 
             // Sensors
             nearest_cells: Vec::new(),
