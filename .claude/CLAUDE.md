@@ -47,6 +47,11 @@ Pre-commit hooks via lefthook automatically run:
 - `cargo clippy --target wasm32-unknown-unknown -- -D warnings` - Linting (fails on warnings)
 - `cargo check` - Compilation check
 
+**IMPORTANT**: After completing any task involving Rust code changes:
+1. Run `cargo fmt --all` to format the code
+2. Run `cargo clippy --target wasm32-unknown-unknown -- -D warnings` to check for linting issues
+3. Fix any warnings or errors before considering the task complete
+
 ## Architecture
 
 ### Core Simulation Loop (src/main.rs)
@@ -113,10 +118,18 @@ Hash grid partitions world into 100-unit buckets for efficient proximity queries
 
 #### Stats Display (src/stats.rs)
 Top-right corner shows best living cell:
-- Current energy, children count, age
+- Current energy, children count, age, generation
 - Fitness score: `total_energy_accumulated + (children_count * 100)`
 - Click to toggle camera follow (highlighted border when selected)
 - Color indicator shows cell's evolved hue
+
+#### Genome Persistence (src/storage.rs)
+Best cell neural networks are automatically saved and loaded:
+- **Web (WASM)**: Stored in browser localStorage via JavaScript FFI
+- **Native**: Saved to `cells_best_brain.json` file
+- Triggered when best cell reproduces
+- New spawns load saved brain and apply small mutations (1-5%)
+- Supports legacy format migration (plain NeuralNetwork → SavedBrain with generation)
 
 ## Important Implementation Details
 
