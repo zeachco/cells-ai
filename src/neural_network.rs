@@ -1,4 +1,5 @@
 use macroquad::prelude::rand;
+use serde::{Deserialize, Serialize};
 
 /// Neural network for cell decision-making
 ///
@@ -6,7 +7,7 @@ use macroquad::prelude::rand;
 /// - Inputs: 5 sensors (distances to nearest cells)
 /// - Hidden layer: 2 * (inputs + outputs) nodes
 /// - Outputs: 4 actions (no-op, turn_left, turn_right, forward)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NeuralNetwork {
     // Input to hidden layer weights [hidden_size x input_size]
     weights_ih: Vec<Vec<f32>>,
@@ -160,6 +161,16 @@ impl NeuralNetwork {
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx)
             .unwrap_or(0)
+    }
+
+    /// Serialize the neural network to JSON
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    /// Deserialize the neural network from JSON
+    pub fn from_json(json: &str) -> Option<Self> {
+        serde_json::from_str(json).ok()
     }
 }
 

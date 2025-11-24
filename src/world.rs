@@ -17,7 +17,7 @@ const ADJUSTMENT_INTERVAL: f32 = 2.0; // Adjust cap every 2 seconds
 const CELL_CAP_STEP: usize = 100; // Adjust cap by 100 cells at a time
 
 // World simulation constants
-const INITIAL_CELL_COUNT: usize = 2500;
+const INITIAL_CELL_COUNT: usize = 1000;
 pub const SENSOR_RANGE: f32 = 200.0; // Public so cells can normalize sensor inputs
 const SENSOR_COUNT: usize = 5;
 const REPRODUCTION_ENERGY_THRESHOLD: f32 = 100.0;
@@ -279,8 +279,9 @@ impl World {
     fn handle_reproduction(&mut self) {
         let mut new_cells = Vec::new();
         let current_cell_count = self.cells.len();
+        let best_cell_idx = self.last_best_cell_index;
 
-        for cell in &mut self.cells {
+        for (idx, cell) in self.cells.iter_mut().enumerate() {
             if cell.energy > REPRODUCTION_ENERGY_THRESHOLD {
                 // Check if we're at or over the max_cells cap
                 let projected_count = current_cell_count + new_cells.len();
@@ -302,6 +303,11 @@ impl World {
                 // Update parent energy and increment children count
                 cell.energy = parent_energy;
                 cell.children_count += 1;
+
+                // Save neural network if this is the best cell reproducing
+                if Some(idx) == best_cell_idx {
+                    crate::storage::save_best_neural_network(&cell.brain);
+                }
             }
         }
 

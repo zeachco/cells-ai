@@ -150,8 +150,19 @@ impl Cell {
         // Mass: max energy capacity, around 200 ± 10%
         let mass = rand::gen_range(180.0, 220.0);
 
-        // Create neural network: 20 inputs (5 sensors × 4 values), 4 outputs (actions)
-        let brain = NeuralNetwork::new(20, 4);
+        // Try to load saved neural network from storage
+        // If available, use it as the base and apply small mutations
+        // Otherwise, create a new random network
+        let brain = if let Some(saved_brain) = crate::storage::load_best_neural_network() {
+            let mut brain = saved_brain;
+            // Apply small mutation (1-5%) to add variance
+            let mutation_rate = rand::gen_range(0.01, 0.05);
+            brain.mutate(mutation_rate);
+            brain
+        } else {
+            // No saved brain, create new random network
+            NeuralNetwork::new(20, 4)
+        };
 
         Cell {
             // Individual State

@@ -25,6 +25,41 @@
     <canvas id="glcanvas" tabindex='1'></canvas>
     <script src="https://not-fl3.github.io/miniquad-samples/gl.js"></script>
     <script type="module">
+        // Add localStorage helper functions for Rust WASM
+        window.storage_save = function(keyPtr, keyLen, valuePtr, valueLen) {
+            try {
+                const key = new TextDecoder().decode(
+                    new Uint8Array(wasm_memory.buffer, keyPtr, keyLen)
+                );
+                const value = new TextDecoder().decode(
+                    new Uint8Array(wasm_memory.buffer, valuePtr, valueLen)
+                );
+                localStorage.setItem(key, value);
+            } catch (e) {
+                console.error('Failed to save to localStorage:', e);
+            }
+        };
+
+        window.storage_load = function(keyPtr, keyLen, bufferPtr, bufferLen) {
+            try {
+                const key = new TextDecoder().decode(
+                    new Uint8Array(wasm_memory.buffer, keyPtr, keyLen)
+                );
+                const value = localStorage.getItem(key);
+                if (value === null) {
+                    return 0;
+                }
+                const encoded = new TextEncoder().encode(value);
+                const len = Math.min(encoded.length, bufferLen);
+                const buffer = new Uint8Array(wasm_memory.buffer, bufferPtr, bufferLen);
+                buffer.set(encoded.slice(0, len));
+                return len;
+            } catch (e) {
+                console.error('Failed to load from localStorage:', e);
+                return 0;
+            }
+        };
+
         const wasmPath = import.meta.env.BASE_URL + 'cells.wasm';
         load(wasmPath);
     </script>

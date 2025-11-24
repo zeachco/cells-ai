@@ -4,6 +4,7 @@ mod math;
 mod neural_network;
 mod spatial_grid;
 mod stats;
+mod storage;
 mod world;
 
 use macroquad::prelude::*;
