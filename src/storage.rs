@@ -1,10 +1,18 @@
 use crate::neural_network::NeuralNetwork;
+use serde::{Deserialize, Serialize};
 
 const NEURAL_NETWORK_KEY: &str = "cells_best_brain";
 
 // Note: The SavedState functionality has been disabled as Cell contains
 // types that cannot be easily serialized (like macroquad::Color).
 // Instead, we only save/load the neural network which is the key evolutionary data.
+
+/// Wrapper struct to save both the neural network and generation count
+#[derive(Serialize, Deserialize)]
+struct SavedBrain {
+    brain: NeuralNetwork,
+    generation: usize,
+}
 
 #[cfg(target_arch = "wasm32")]
 unsafe extern "C" {
@@ -16,10 +24,14 @@ unsafe extern "C" {
     fn storage_load(key: *const u8, key_len: usize, buffer: *mut u8, buffer_len: usize) -> usize;
 }
 
-/// Save a neural network to localStorage
+/// Save a neural network and generation to localStorage
 /// This is called each time the best cell reproduces
-pub fn save_best_neural_network(brain: &NeuralNetwork) {
-    let json = brain.to_json();
+pub fn save_best_neural_network(brain: &NeuralNetwork, generation: usize) {
+    let saved_brain = SavedBrain {
+        brain: brain.clone(),
+        generation,
+    };
+    let json = serde_json::to_string(&saved_brain).unwrap_or_default();
 
     #[cfg(target_arch = "wasm32")]
     unsafe {
@@ -43,9 +55,9 @@ pub fn save_best_neural_network(brain: &NeuralNetwork) {
     }
 }
 
-/// Load a neural network from localStorage
+/// Load a neural network and generation from localStorage
 /// Returns None if no saved brain exists
-pub fn load_best_neural_network() -> Option<NeuralNetwork> {
+pub fn load_best_neural_network() -> Option<(NeuralNetwork, usize)> {
     #[cfg(target_arch = "wasm32")]
     unsafe {
         // Allocate a buffer for the result (max 1MB for neural network JSON)
@@ -59,11 +71,22 @@ pub fn load_best_neural_network() -> Option<NeuralNetwork> {
 
         if len > 0 {
             buffer.truncate(len);
-            if let Ok(json) = String::from_utf8(buffer)
-                && let Some(brain) = NeuralNetwork::from_json(&json)
-            {
-                println!("🧠 Loaded best brain from localStorage");
-                return Some(brain);
+            if let Ok(json) = String::from_utf8(buffer) {
+                // Try to load as SavedBrain first (new format)
+                if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(&json) {
+                    println!(
+                        "🧠 Loaded best brain from localStorage (generation {})",
+                        saved_brain.generation
+                    );
+                    return Some((saved_brain.brain, saved_brain.generation));
+                }
+                // Fall back to old format (just NeuralNetwork)
+                if let Some(brain) = NeuralNetwork::from_json(&json) {
+                    println!(
+                        "🧠 Loaded best brain from localStorage (legacy format, generation unknown)"
+                    );
+                    return Some((brain, 0));
+                }
             }
         }
         None
@@ -73,9 +96,18 @@ pub fn load_best_neural_network() -> Option<NeuralNetwork> {
     {
         // For native builds, load from file
         if let Ok(json) = std::fs::read_to_string("cells_best_brain.json") {
+            // Try to load as SavedBrain first (new format)
+            if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(&json) {
+                println!(
+                    "🧠 Loaded best brain from file (generation {})",
+                    saved_brain.generation
+                );
+                return Some((saved_brain.brain, saved_brain.generation));
+            }
+            // Fall back to old format (just NeuralNetwork)
             if let Some(brain) = NeuralNetwork::from_json(&json) {
-                println!("🧠 Loaded best brain from file");
-                return Some(brain);
+                println!("🧠 Loaded best brain from file (legacy format, generation unknown)");
+                return Some((brain, 0));
             }
         }
         None
