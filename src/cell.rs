@@ -409,10 +409,6 @@ impl Cell {
             draw_circle_lines(screen_x, screen_y, current_radius, 2.0, gray_color);
         }
 
-        // Draw black dot at cell center
-        let center_dot_radius = current_radius * 0.25;
-        draw_circle(screen_x, screen_y, center_dot_radius, BLACK);
-
         // Draw a line showing the direction the cell is facing (only for alive cells)
         if self.state == CellState::Alive {
             let line_length = current_radius * 1.5;
