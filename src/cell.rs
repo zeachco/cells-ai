@@ -1,5 +1,4 @@
 use crate::neural_network::NeuralNetwork;
-use crate::world::{WORLD_HEIGHT, WORLD_WIDTH};
 use macroquad::prelude::*;
 
 // Cell behavior constants
@@ -141,7 +140,7 @@ impl Cell {
         1.0 + (self.age / MAX_AGE_FOR_COST).min(1.0) * (MAX_AGE_COST_MULTIPLIER - 1.0)
     }
 
-    pub fn spawn() -> Self {
+    pub fn spawn(world_width: f32, world_height: f32) -> Self {
         let speed = rand::gen_range(1.0, 3.0);
         let angle = rand::gen_range(0.0, std::f32::consts::TAU);
         // Energy chunk size: 50 ± 10% = 45 to 55
@@ -168,8 +167,8 @@ impl Cell {
 
         Cell {
             // Individual State
-            x: rand::gen_range(0.0, WORLD_WIDTH),
-            y: rand::gen_range(0.0, WORLD_HEIGHT),
+            x: rand::gen_range(0.0, world_width),
+            y: rand::gen_range(0.0, world_height),
             velocity_x: angle.cos() * speed * rand::gen_range(0.5, 1.0),
             velocity_y: angle.sin() * speed * rand::gen_range(0.5, 1.0),
             energy: 100.0,
@@ -314,7 +313,7 @@ impl Cell {
         }
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, world_width: f32, world_height: f32) {
         // State transition: Alive -> Corpse when energy depleted
         if self.state == CellState::Alive && self.energy <= 0.0 {
             self.state = CellState::Corpse;
@@ -353,8 +352,8 @@ impl Cell {
         self.angle += self.angle_velocity;
 
         // Boundary wrapping (inline instead of separate pass)
-        self.x = self.x.rem_euclid(WORLD_WIDTH);
-        self.y = self.y.rem_euclid(WORLD_HEIGHT);
+        self.x = self.x.rem_euclid(world_width);
+        self.y = self.y.rem_euclid(world_height);
 
         self.velocity_y *= 0.95; // Friction
         self.velocity_x *= 0.95; // Friction
