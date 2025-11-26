@@ -23,57 +23,64 @@
 </head>
 <body>
     <canvas id="glcanvas" tabindex='1'></canvas>
-    <script src="https://not-fl3.github.io/miniquad-samples/gl.js"></script>
+    <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
     <script type="module">
-        // Add localStorage helper functions for Rust WASM
-        window.storage_save = function(keyPtr, keyLen, valuePtr, valueLen) {
-            try {
-                const key = new TextDecoder().decode(
-                    new Uint8Array(wasm_memory.buffer, keyPtr, keyLen)
-                );
-                const value = new TextDecoder().decode(
-                    new Uint8Array(wasm_memory.buffer, valuePtr, valueLen)
-                );
-                localStorage.setItem(key, value);
-            } catch (e) {
-                console.error('Failed to save to localStorage:', e);
-            }
-        };
-
-        window.storage_load = function(keyPtr, keyLen, bufferPtr, bufferLen) {
-            try {
-                const key = new TextDecoder().decode(
-                    new Uint8Array(wasm_memory.buffer, keyPtr, keyLen)
-                );
-                const value = localStorage.getItem(key);
-                if (value === null) {
-                    return 0;
-                }
-                const encoded = new TextEncoder().encode(value);
-                const len = Math.min(encoded.length, bufferLen);
-                const buffer = new Uint8Array(wasm_memory.buffer, bufferPtr, bufferLen);
-                buffer.set(encoded.slice(0, len));
-                return len;
-            } catch (e) {
-                console.error('Failed to load from localStorage:', e);
-                return 0;
-            }
-        };
-
-        // Check for demo mode in URL parameters
+        // Parse URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const isDemoMode = urlParams.get('demo') === 'true';
+        console.log('JavaScript: Demo mode =', isDemoMode);
 
-        // Store demo mode flag to be read after WASM loads
-        window.isDemoMode = isDemoMode;
+        // Register custom plugin for WASM
+        miniquad_add_plugin({
+            register_plugin: function(importObject) {
+                console.log('Registering custom plugin...');
 
-        const wasmPath = import.meta.env.BASE_URL + 'cells.wasm';
-        load(wasmPath).then(() => {
-            if (typeof wasm_exports !== 'undefined' && wasm_exports.set_demo_mode) {
-                wasm_exports.set_demo_mode(window.isDemoMode);
-                console.log('Demo mode:', window.isDemoMode);
+                // Add demo mode check function for Rust
+                importObject.env.js_is_demo_mode = function() {
+                    console.log('js_is_demo_mode called, returning:', isDemoMode ? 1 : 0);
+                    return isDemoMode ? 1 : 0;
+                };
+
+                // Add localStorage helper functions for Rust WASM
+                importObject.env.storage_save = function(keyPtr, keyLen, valuePtr, valueLen) {
+                try {
+                    const key = new TextDecoder().decode(
+                        new Uint8Array(wasm_memory.buffer, keyPtr, keyLen)
+                    );
+                    const value = new TextDecoder().decode(
+                        new Uint8Array(wasm_memory.buffer, valuePtr, valueLen)
+                    );
+                    localStorage.setItem(key, value);
+                } catch (e) {
+                    console.error('Failed to save to localStorage:', e);
+                }
+            };
+
+            importObject.env.storage_load = function(keyPtr, keyLen, bufferPtr, bufferLen) {
+                try {
+                    const key = new TextDecoder().decode(
+                        new Uint8Array(wasm_memory.buffer, keyPtr, keyLen)
+                    );
+                    const value = localStorage.getItem(key);
+                    if (value === null) {
+                        return 0;
+                    }
+                    const encoded = new TextEncoder().encode(value);
+                    const len = Math.min(encoded.length, bufferLen);
+                    const buffer = new Uint8Array(wasm_memory.buffer, bufferPtr, bufferLen);
+                    buffer.set(encoded.slice(0, len));
+                    return len;
+                } catch (e) {
+                    console.error('Failed to load from localStorage:', e);
+                    return 0;
+                }
+            };
             }
         });
+
+        // Load WASM - Rust will read URL parameters directly
+        const wasmPath = import.meta.env.BASE_URL + 'cells.wasm';
+        load(wasmPath);
     </script>
 </body>
 </html>

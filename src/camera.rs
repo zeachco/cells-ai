@@ -32,7 +32,7 @@ impl Camera {
             target_angle: 0.0,
             move_speed: 2000.0, // Increased from 1000.0
             rotation_speed: 2.0,
-            lerp_factor: 0.15, // Increased from 0.05 for more friction
+            lerp_factor: 0.015, // Increased from 0.05 for more friction
             is_dragging: false,
             last_mouse_x: 0.0,
             last_mouse_y: 0.0,

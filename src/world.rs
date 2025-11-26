@@ -173,9 +173,9 @@ impl World {
             let delta_x = target_camera_x - self.camera.x;
             let delta_y = target_camera_y - self.camera.y;
 
-            // Move camera by 10% of the delta
-            self.camera.target_x = self.camera.x + delta_x * 0.1;
-            self.camera.target_y = self.camera.y + delta_y * 0.1;
+            // Move camera towards target using configured tracking speed
+            self.camera.target_x = self.camera.x + delta_x * self.config.camera_tracking_speed;
+            self.camera.target_y = self.camera.y + delta_y * self.config.camera_tracking_speed;
         }
     }
 
@@ -717,7 +717,7 @@ impl World {
             cell.render(self.camera.x, self.camera.y);
 
             // Draw gold stroke around selected cell (only if UI enabled)
-            if self.config.show_ui && self.selected_cell_index == Some(idx) {
+            if self.selected_cell_index == Some(idx) {
                 let current_radius = cell.get_current_radius();
                 let gold = Color::new(1.0, 0.84, 0.0, 1.0); // Gold color
                 draw_circle_lines(
