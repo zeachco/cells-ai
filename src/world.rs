@@ -1,13 +1,11 @@
 use crate::camera::Camera;
 use crate::cell::{Cell, CellState};
+use crate::config::{SimulationConfig, get_config};
 use crate::spatial_grid::SpatialGrid;
 use crate::stats::Stats;
 use macroquad::prelude::*;
 use rayon::prelude::*;
 use std::collections::VecDeque;
-
-pub const WORLD_WIDTH: f32 = 8000.0;
-pub const WORLD_HEIGHT: f32 = 7000.0;
 
 // FPS performance targets
 const TARGET_MIN_FPS: f32 = 30.0;
@@ -17,7 +15,6 @@ const ADJUSTMENT_INTERVAL: f32 = 2.0; // Adjust cap every 2 seconds
 const CELL_CAP_STEP: usize = 100; // Adjust cap by 100 cells at a time
 
 // World simulation constants
-const INITIAL_CELL_COUNT: usize = 1000;
 pub const SENSOR_RANGE: f32 = 200.0; // Public so cells can normalize sensor inputs
 const SENSOR_COUNT: usize = 5;
 const REPRODUCTION_ENERGY_THRESHOLD: f32 = 100.0;
@@ -53,20 +50,23 @@ pub struct World {
     pub simulation_speed: f32, // 1.0 = normal, 0.5 = half speed, 2.0 = double speed
     // Diversity tracking
     pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
+    // Configuration
+    config: SimulationConfig,
 }
 
 impl World {
     pub fn spawn() -> Self {
+        let config = get_config();
         let mut cells = Vec::new();
-        for _ in 0..INITIAL_CELL_COUNT {
-            cells.push(Cell::spawn());
+        for _ in 0..config.initial_cell_count {
+            cells.push(Cell::spawn(config.world_width, config.world_height));
         }
 
         World {
             cells,
             camera: Camera::new(),
-            spatial_grid: SpatialGrid::new(WORLD_WIDTH, WORLD_HEIGHT, 100.0),
-            max_cells: INITIAL_CELL_COUNT,
+            spatial_grid: SpatialGrid::new(config.world_width, config.world_height, 100.0),
+            max_cells: config.initial_cell_count,
             frame_times: VecDeque::with_capacity(FPS_SAMPLE_SIZE),
             last_adjustment_time: 0.0,
             current_fps: 60.0, // Initial estimate
@@ -77,6 +77,7 @@ impl World {
             paused: false,
             simulation_speed: 1.0,
             color_diversity: 0.0,
+            config,
         }
     }
 
@@ -87,13 +88,13 @@ impl World {
             self.cells.clear();
 
             // Spawn new cells based on the best cell's genome
-            let spawn_count = self.max_cells.min(INITIAL_CELL_COUNT);
+            let spawn_count = self.max_cells.min(self.config.initial_cell_count);
             for _ in 0..spawn_count {
                 let mut new_cell = best_cell.spawn_child();
 
                 // Randomize position across the entire map
-                new_cell.x = rand::gen_range(0.0, WORLD_WIDTH);
-                new_cell.y = rand::gen_range(0.0, WORLD_HEIGHT);
+                new_cell.x = rand::gen_range(0.0, self.config.world_width);
+                new_cell.y = rand::gen_range(0.0, self.config.world_height);
 
                 // Give them starting energy
                 new_cell.energy = 100.0;
@@ -127,10 +128,14 @@ impl World {
         // Adjust max_cells cap based on FPS
         self.adjust_cell_cap();
 
+        // Capture world dimensions for parallel context
+        let world_width = self.config.world_width;
+        let world_height = self.config.world_height;
+
         // Parallel cell updates (speed affects energy costs and movement)
         // Note: For simplicity, we update normally and accept speed affects FPS
         self.cells.par_iter_mut().for_each(|cell| {
-            cell.update();
+            cell.update(world_width, world_height);
         });
 
         // Build spatial grid for collision detection
@@ -331,6 +336,10 @@ impl World {
             })
             .collect();
 
+        // Capture world dimensions for parallel context
+        let world_width = self.config.world_width;
+        let world_height = self.config.world_height;
+
         // Update sensors for each cell in parallel
         self.cells.par_iter_mut().enumerate().for_each(|(i, cell)| {
             // Query nearby cells using spatial grid
@@ -356,11 +365,11 @@ impl World {
                     let mut dy = y2 - cell.y;
 
                     // Adjust for world wrapping
-                    if dx.abs() > WORLD_WIDTH / 2.0 {
-                        dx = dx - dx.signum() * WORLD_WIDTH;
+                    if dx.abs() > world_width / 2.0 {
+                        dx = dx - dx.signum() * world_width;
                     }
-                    if dy.abs() > WORLD_HEIGHT / 2.0 {
-                        dy = dy - dy.signum() * WORLD_HEIGHT;
+                    if dy.abs() > world_height / 2.0 {
+                        dy = dy - dy.signum() * world_height;
                     }
 
                     let distance = (dx * dx + dy * dy).sqrt();
@@ -516,6 +525,10 @@ impl World {
             })
             .collect();
 
+        // Capture world dimensions for parallel context
+        let world_width = self.config.world_width;
+        let world_height = self.config.world_height;
+
         // Parallel collision detection using spatial grid
         // Returns (alive_cell_index, corpse_cell_index, chunk_size, multiplier)
         let collisions: Vec<(usize, usize, f32, f32)> = (0..collision_data.len())
@@ -548,11 +561,11 @@ impl World {
                     let mut dy = cell_i.y - cell_j.y;
 
                     // Adjust for world wrapping
-                    if dx.abs() > WORLD_WIDTH / 2.0 {
-                        dx = dx - dx.signum() * WORLD_WIDTH;
+                    if dx.abs() > world_width / 2.0 {
+                        dx = dx - dx.signum() * world_width;
                     }
-                    if dy.abs() > WORLD_HEIGHT / 2.0 {
-                        dy = dy - dy.signum() * WORLD_HEIGHT;
+                    if dy.abs() > world_height / 2.0 {
+                        dy = dy - dy.signum() * world_height;
                     }
 
                     let distance_squared = dx * dx + dy * dy;
@@ -622,11 +635,11 @@ impl World {
                 let mut dy = target.y - cell.y;
 
                 // Handle world wrapping for line drawing
-                if dx.abs() > WORLD_WIDTH / 2.0 {
-                    dx = dx - dx.signum() * WORLD_WIDTH;
+                if dx.abs() > self.config.world_width / 2.0 {
+                    dx = dx - dx.signum() * self.config.world_width;
                 }
-                if dy.abs() > WORLD_HEIGHT / 2.0 {
-                    dy = dy - dy.signum() * WORLD_HEIGHT;
+                if dy.abs() > self.config.world_height / 2.0 {
+                    dy = dy - dy.signum() * self.config.world_height;
                 }
 
                 // Calculate target position accounting for wrapping
@@ -672,11 +685,13 @@ impl World {
     }
 
     pub fn render(&self) {
-        // Render boundary lines
-        self.render_boundaries();
+        // Render boundary lines (only if UI enabled)
+        if self.config.show_ui {
+            self.render_boundaries();
 
-        // Render sensor lines first (so they appear behind cells)
-        self.render_sensor_lines();
+            // Render sensor lines first (so they appear behind cells)
+            self.render_sensor_lines();
+        }
 
         // Count stats
         let mut cells_in_viewport = 0;
@@ -701,8 +716,8 @@ impl World {
             // Render the cell
             cell.render(self.camera.x, self.camera.y);
 
-            // Draw gold stroke around selected cell
-            if self.selected_cell_index == Some(idx) {
+            // Draw gold stroke around selected cell (only if UI enabled)
+            if self.config.show_ui && self.selected_cell_index == Some(idx) {
                 let current_radius = cell.get_current_radius();
                 let gold = Color::new(1.0, 0.84, 0.0, 1.0); // Gold color
                 draw_circle_lines(
@@ -715,11 +730,13 @@ impl World {
             }
         }
 
-        // Render stats
-        self.render_stats(cells_in_viewport);
+        // Render stats (only if UI enabled)
+        if self.config.show_ui {
+            self.render_stats(cells_in_viewport);
 
-        // Render best cell stats (top-right corner)
-        self.stats.render();
+            // Render best cell stats (top-right corner)
+            self.stats.render();
+        }
     }
 
     fn render_boundaries(&self) {
@@ -732,18 +749,18 @@ impl World {
             left_screen_x,
             0.0 - self.camera.y,
             left_screen_x,
-            WORLD_HEIGHT - self.camera.y,
+            self.config.world_height - self.camera.y,
             line_thickness,
             boundary_color,
         );
 
-        // Right boundary (x = WORLD_WIDTH)
-        let right_screen_x = WORLD_WIDTH - self.camera.x;
+        // Right boundary (x = world_width)
+        let right_screen_x = self.config.world_width - self.camera.x;
         draw_line(
             right_screen_x,
             0.0 - self.camera.y,
             right_screen_x,
-            WORLD_HEIGHT - self.camera.y,
+            self.config.world_height - self.camera.y,
             line_thickness,
             boundary_color,
         );
@@ -753,18 +770,18 @@ impl World {
         draw_line(
             0.0 - self.camera.x,
             top_screen_y,
-            WORLD_WIDTH - self.camera.x,
+            self.config.world_width - self.camera.x,
             top_screen_y,
             line_thickness,
             boundary_color,
         );
 
-        // Bottom boundary (y = WORLD_HEIGHT)
-        let bottom_screen_y = WORLD_HEIGHT - self.camera.y;
+        // Bottom boundary (y = world_height)
+        let bottom_screen_y = self.config.world_height - self.camera.y;
         draw_line(
             0.0 - self.camera.x,
             bottom_screen_y,
-            WORLD_WIDTH - self.camera.x,
+            self.config.world_width - self.camera.x,
             bottom_screen_y,
             line_thickness,
             boundary_color,

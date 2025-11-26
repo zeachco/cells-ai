@@ -60,8 +60,20 @@
             }
         };
 
+        // Check for demo mode in URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDemoMode = urlParams.get('demo') === 'true';
+
+        // Store demo mode flag to be read after WASM loads
+        window.isDemoMode = isDemoMode;
+
         const wasmPath = import.meta.env.BASE_URL + 'cells.wasm';
-        load(wasmPath);
+        load(wasmPath).then(() => {
+            if (typeof wasm_exports !== 'undefined' && wasm_exports.set_demo_mode) {
+                wasm_exports.set_demo_mode(window.isDemoMode);
+                console.log('Demo mode:', window.isDemoMode);
+            }
+        });
     </script>
 </body>
 </html>

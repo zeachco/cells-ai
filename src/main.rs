@@ -1,5 +1,6 @@
 mod camera;
 mod cell;
+mod config;
 mod math;
 mod neural_network;
 mod spatial_grid;
