@@ -140,7 +140,11 @@ impl Cell {
         1.0 + (self.age / MAX_AGE_FOR_COST).min(1.0) * (MAX_AGE_COST_MULTIPLIER - 1.0)
     }
 
-    pub fn spawn(world_width: f32, world_height: f32) -> Self {
+    pub fn spawn(
+        world_width: f32,
+        world_height: f32,
+        cached_brain: &Option<(NeuralNetwork, usize)>,
+    ) -> Self {
         let speed = rand::gen_range(1.0, 3.0);
         let angle = rand::gen_range(0.0, std::f32::consts::TAU);
         // Energy chunk size: 50 ± 10% = 45 to 55
@@ -150,20 +154,17 @@ impl Cell {
         // Mass: max energy capacity, around 200 ± 10%
         let mass = rand::gen_range(180.0, 220.0);
 
-        // Try to load saved neural network from storage
-        // If available, use it as the base and apply small mutations
-        // Otherwise, create a new random network
-        let (brain, loaded_generation) =
-            if let Some((saved_brain, generation)) = crate::storage::load_best_neural_network() {
-                let mut brain = saved_brain;
-                // Apply small mutation (1-5%) to add variance
-                let mutation_rate = rand::gen_range(0.01, 0.05);
-                brain.mutate(mutation_rate);
-                (brain, generation)
-            } else {
-                // No saved brain, create new random network
-                (NeuralNetwork::new(20, 4), 0)
-            };
+        // Use cached brain if available, otherwise create a new random network
+        let (brain, loaded_generation) = if let Some((saved_brain, generation)) = cached_brain {
+            let mut brain = saved_brain.clone();
+            // Apply small mutation (1-5%) to add variance
+            let mutation_rate = rand::gen_range(0.01, 0.05);
+            brain.mutate(mutation_rate);
+            (brain, *generation)
+        } else {
+            // No cached brain, create new random network
+            (NeuralNetwork::new(20, 4), 0)
+        };
 
         Cell {
             // Individual State
