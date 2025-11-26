@@ -52,14 +52,24 @@ pub struct World {
     pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
     // Configuration
     config: SimulationConfig,
+    // Cached best neural network (brain, generation) - loaded once from storage
+    cached_best_brain: Option<(crate::neural_network::NeuralNetwork, usize)>,
 }
 
 impl World {
     pub fn spawn() -> Self {
         let config = get_config();
+
+        // Load best brain once from storage and cache it
+        let cached_best_brain = crate::storage::load_best_neural_network();
+
         let mut cells = Vec::new();
         for _ in 0..config.initial_cell_count {
-            cells.push(Cell::spawn(config.world_width, config.world_height));
+            cells.push(Cell::spawn(
+                config.world_width,
+                config.world_height,
+                &cached_best_brain,
+            ));
         }
 
         World {
@@ -78,6 +88,7 @@ impl World {
             simulation_speed: 1.0,
             color_diversity: 0.0,
             config,
+            cached_best_brain,
         }
     }
 
@@ -107,6 +118,17 @@ impl World {
                 spawn_count,
                 best_cell.total_energy_accumulated + (best_cell.children_count as f32 * 100.0)
             );
+        } else {
+            // No best cell genome, spawn fresh cells using cached brain
+            let spawn_count = self.max_cells.min(self.config.initial_cell_count);
+            for _ in 0..spawn_count {
+                self.cells.push(Cell::spawn(
+                    self.config.world_width,
+                    self.config.world_height,
+                    &self.cached_best_brain,
+                ));
+            }
+            println!("World reset! Spawned {} fresh cells", spawn_count);
         }
     }
 
@@ -312,6 +334,8 @@ impl World {
                 // Save neural network if this is the best cell reproducing
                 if Some(idx) == best_cell_idx {
                     crate::storage::save_best_neural_network(&cell.brain, cell.generation);
+                    // Update cache with the newly saved brain
+                    self.cached_best_brain = Some((cell.brain.clone(), cell.generation));
                 }
             }
         }
