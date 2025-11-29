@@ -2,6 +2,8 @@ use crate::neural_network::NeuralNetwork;
 use macroquad::prelude::*;
 
 // Cell behavior constants
+const CONSTANT_FORWARD_FORCE: f32 = 0.1;
+const BOOST_ENERGY_MULTIPLIER: f32 = 1.5;
 const METABOLISM_ENERGY_LOSS: f32 = 0.03;
 const CORPSE_DECAY_RATE: f32 = 0.02;
 const TURN_ENERGY_COST: f32 = 0.45;
@@ -342,6 +344,12 @@ impl Cell {
             self.energy -= CORPSE_DECAY_RATE;
         }
 
+        // Constant slow forward movement for alive cells
+        if self.state == CellState::Alive {
+            self.velocity_x += self.angle.cos() * CONSTANT_FORWARD_FORCE;
+            self.velocity_y += self.angle.sin() * CONSTANT_FORWARD_FORCE;
+        }
+
         // Apply mass-based velocity slowdown
         // Higher mass = slower movement (mass acts as inertia/drag)
         let mass_factor = 200.0 / self.mass; // Normalize around 200
@@ -439,10 +447,10 @@ impl Cell {
 
     pub fn forward(&mut self) {
         let age_multiplier = self.get_age_cost_multiplier();
-        let cost = FORWARD_ENERGY_COST * age_multiplier;
+        let cost = FORWARD_ENERGY_COST * BOOST_ENERGY_MULTIPLIER * age_multiplier;
         if self.energy >= cost {
-            self.velocity_x = self.angle.cos() * self.speed;
-            self.velocity_y = self.angle.sin() * self.speed;
+            self.velocity_x += self.angle.cos() * self.speed;
+            self.velocity_y += self.angle.sin() * self.speed;
             self.energy -= cost;
         }
     }
