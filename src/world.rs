@@ -45,6 +45,7 @@ pub struct World {
     best_cell_genome: Option<Cell>, // Store the complete best cell for respawning
     last_best_cell_index: Option<usize>, // Track last best cell to avoid redundant clones
     selected_cell_index: Option<usize>, // Currently selected cell for highlighting
+    followed_cell_death_time: Option<f64>, // Track when the followed cell died
     // Simulation controls
     pub paused: bool,
     pub simulation_speed: f32, // 1.0 = normal, 0.5 = half speed, 2.0 = double speed
@@ -84,6 +85,7 @@ impl World {
             best_cell_genome: None,
             last_best_cell_index: None,
             selected_cell_index: None,
+            followed_cell_death_time: None,
             paused: false,
             simulation_speed: 1.0,
             color_diversity: 0.0,
@@ -497,39 +499,87 @@ impl World {
         }
 
         // Update stats and genome with the best cell only, or clear if no alive cells
+        let current_time = get_time();
+
+        // Check if the currently followed cell has died
+        let should_switch_target = if let Some(last_index) = self.last_best_cell_index {
+            if last_index < self.cells.len() && self.cells[last_index].state == CellState::Alive {
+                // Currently followed cell is still alive, reset death timer
+                self.followed_cell_death_time = None;
+                true // Can switch immediately to a better cell
+            } else {
+                // Currently followed cell is dead
+                if self.followed_cell_death_time.is_none() {
+                    // Record death time
+                    self.followed_cell_death_time = Some(current_time);
+                }
+
+                // Check if 3 seconds have passed since death
+                if let Some(death_time) = self.followed_cell_death_time {
+                    current_time - death_time >= 3.0
+                } else {
+                    false
+                }
+            }
+        } else {
+            // No cell being followed, can switch immediately
+            true
+        };
+
         if let Some(index) = best_cell_index {
             let best_cell = &self.cells[index];
 
-            // Only clone the best cell's genome if it changed (avoid expensive clone every frame)
-            if self.last_best_cell_index != Some(index) {
-                self.best_cell_genome = Some(best_cell.clone());
-                self.last_best_cell_index = Some(index);
-            }
+            // Only update to new best cell if we should switch targets
+            if should_switch_target {
+                // Only clone the best cell's genome if it changed (avoid expensive clone every frame)
+                if self.last_best_cell_index != Some(index) {
+                    self.best_cell_genome = Some(best_cell.clone());
+                    self.last_best_cell_index = Some(index);
+                    self.followed_cell_death_time = None; // Reset death timer for new target
+                }
 
-            // Set stats to show the current best alive cell
-            self.stats.set(crate::stats::BestCellStats {
-                total_energy_accumulated: best_cell.total_energy_accumulated,
-                current_energy: best_cell.energy,
-                children_count: best_cell.children_count,
-                generation: best_cell.generation,
-                color: best_cell.color,
-                age: best_cell.age,
-                x: best_cell.x,
-                y: best_cell.y,
-                is_alive: true, // is_alive is guaranteed true since we filtered for it
-            });
+                // Set stats to show the current best alive cell
+                self.stats.set(crate::stats::BestCellStats {
+                    total_energy_accumulated: best_cell.total_energy_accumulated,
+                    current_energy: best_cell.energy,
+                    children_count: best_cell.children_count,
+                    generation: best_cell.generation,
+                    color: best_cell.color,
+                    age: best_cell.age,
+                    x: best_cell.x,
+                    y: best_cell.y,
+                    is_alive: true, // is_alive is guaranteed true since we filtered for it
+                });
 
-            // Update selected cell index if stats are selected
-            if self.stats.is_selected() {
-                self.selected_cell_index = Some(index);
-            } else {
-                self.selected_cell_index = None;
+                // Update selected cell index if stats are selected
+                if self.stats.is_selected() {
+                    self.selected_cell_index = Some(index);
+                } else {
+                    self.selected_cell_index = None;
+                }
+            } else if let Some(last_index) = self.last_best_cell_index {
+                // Keep showing the dead cell until 3 seconds pass
+                if last_index < self.cells.len() {
+                    let dead_cell = &self.cells[last_index];
+                    self.stats.set(crate::stats::BestCellStats {
+                        total_energy_accumulated: dead_cell.total_energy_accumulated,
+                        current_energy: dead_cell.energy,
+                        children_count: dead_cell.children_count,
+                        generation: dead_cell.generation,
+                        color: dead_cell.color,
+                        age: dead_cell.age,
+                        x: dead_cell.x,
+                        y: dead_cell.y,
+                        is_alive: false,
+                    });
+                }
             }
-        } else {
-            // No alive cells found, clear the stats
+        } else if should_switch_target {
+            // No alive cells found and cooldown has passed, clear the stats
             self.stats.clear();
             self.last_best_cell_index = None;
             self.selected_cell_index = None;
+            self.followed_cell_death_time = None;
         }
     }
 
