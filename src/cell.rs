@@ -35,6 +35,7 @@ pub struct Cell {
 
     // ===== Stats Tracking =====
     pub total_energy_accumulated: f32, // Total energy gained throughout lifetime
+    pub energy_from_cells: f32,        // Energy gained specifically from reaching other cells
     pub children_count: usize,         // Number of children produced
     pub generation: usize,             // Generation count (0 for initial, 1+ for descendants)
 
@@ -182,6 +183,7 @@ impl Cell {
 
             // Stats Tracking
             total_energy_accumulated: 100.0, // Start with initial energy
+            energy_from_cells: 0.0,          // No energy from cells yet
             children_count: 0,
             generation: loaded_generation, // Use loaded generation from saved brain
 
@@ -237,6 +239,7 @@ impl Cell {
 
             // Stats Tracking
             total_energy_accumulated: 0.0, // Start fresh
+            energy_from_cells: 0.0,        // No energy from cells yet
             children_count: 0,
             generation: self.generation + 1, // Increment generation
 
@@ -375,6 +378,9 @@ impl Cell {
         // Track total energy accumulated
         self.total_energy_accumulated += amount;
 
+        // Track energy specifically from cells (collisions)
+        self.energy_from_cells += amount;
+
         if self.age < GROWTH_AGE_THRESHOLD {
             // Young cells: energy goes to growth, not stored
             // Energy is simply discarded (used for growing)
@@ -383,6 +389,21 @@ impl Cell {
 
         // Mature cells: energy is stored
         self.energy += amount;
+    }
+
+    // Calculate cell's comprehensive fitness score
+    // Priority: children count (primary), energy from cells (equally important), age (secondary)
+    pub fn score(&self) -> f32 {
+        // Children count: 100 points per child (primary metric)
+        let children_score = self.children_count as f32 * 100.0;
+
+        // Energy from cells: 1 point per energy (equally important as children)
+        let energy_score = self.energy_from_cells;
+
+        // Age: 10 points per age unit (secondary metric - older cells have survived longer)
+        let age_score = self.age * 10.0;
+
+        children_score + energy_score + age_score
     }
 
     pub fn render(&self, camera_x: f32, camera_y: f32) {

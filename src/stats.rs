@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 
 #[derive(Clone)]
 pub struct BestCellStats {
-    pub total_energy_accumulated: f32,
+    pub energy_from_cells: f32,
     pub current_energy: f32,
     pub children_count: usize,
     pub generation: usize,
@@ -36,11 +36,18 @@ impl Stats {
         self.best_cell = Some(stats);
     }
 
-    // Calculate a fitness score for a cell based on energy accumulated and children count
-    pub fn calculate_fitness(energy: f32, children: usize) -> f32 {
-        // Weight both energy and children equally
-        // Normalize children to be on a similar scale as energy
-        energy + (children as f32 * 100.0)
+    // Calculate comprehensive score based on children, energy from cells, and age
+    pub fn calculate_score(children: usize, energy_from_cells: f32, age: f32) -> f32 {
+        // Children count: 100 points per child (primary metric)
+        let children_score = children as f32 * 100.0;
+
+        // Energy from cells: 1 point per energy (equally important as children)
+        let energy_score = energy_from_cells;
+
+        // Age: 10 points per age unit (secondary metric - older cells have survived longer)
+        let age_score = age * 10.0;
+
+        children_score + energy_score + age_score
     }
 
     // Get the bounds of the stats box for click detection
@@ -57,7 +64,7 @@ impl Stats {
         let line2 = "Children: 99999";
         let line3 = "Generation: 99999";
         let line4 = "Age: 999.9";
-        let line5 = "Fitness: 999999.9";
+        let line5 = "Score: 999999.9";
 
         let max_width = [
             measure_text(title, None, font_size as u16, 1.0).width,
@@ -128,9 +135,9 @@ impl Stats {
             let line2 = format!("Children: {}", best.children_count);
             let line3 = format!("Generation: {}", best.generation);
             let line4 = format!("Age: {:.1}", best.age);
-            let fitness =
-                Self::calculate_fitness(best.total_energy_accumulated, best.children_count);
-            let line5 = format!("Fitness: {:.1}", fitness);
+            let score =
+                Self::calculate_score(best.children_count, best.energy_from_cells, best.age);
+            let line5 = format!("Score: {:.1}", score);
 
             // Find the longest line for background width
             let max_width = [
