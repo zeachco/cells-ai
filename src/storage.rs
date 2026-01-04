@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 
 const NEURAL_NETWORK_KEY: &str = "cells_best_brain";
 
+// Include the default brain JSON at compile time for WASM builds
+// This serves as the initial brain when localStorage is empty (first run)
+#[cfg(target_arch = "wasm32")]
+const DEFAULT_BRAIN_JSON: &str = include_str!("../cells_best_brain.json");
+
 // Note: The SavedState functionality has been disabled as Cell contains
 // types that cannot be easily serialized (like macroquad::Color).
 // Instead, we only save/load the neural network which is the key evolutionary data.
@@ -86,6 +91,7 @@ pub fn load_best_neural_network() -> Option<(NeuralNetwork, usize)> {
             buffer.len(),
         );
 
+        // Try to load from localStorage first
         if len > 0 {
             buffer.truncate(len);
             if let Ok(json) = String::from_utf8(buffer) {
@@ -106,6 +112,21 @@ pub fn load_best_neural_network() -> Option<(NeuralNetwork, usize)> {
                 }
             }
         }
+
+        // If localStorage is empty or invalid, use the compiled-in default brain
+        if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(DEFAULT_BRAIN_JSON) {
+            println!(
+                "🧠 Loaded default brain from compiled JSON (generation {}, score {:.1})",
+                saved_brain.generation, saved_brain.score
+            );
+            return Some((saved_brain.brain, saved_brain.generation));
+        }
+        // Fall back to old format if default is in legacy format
+        if let Some(brain) = NeuralNetwork::from_json(DEFAULT_BRAIN_JSON) {
+            println!("🧠 Loaded default brain from compiled JSON (legacy format)");
+            return Some((brain, 0));
+        }
+
         None
     }
 
