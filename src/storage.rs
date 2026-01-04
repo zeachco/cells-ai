@@ -7,9 +7,15 @@ const NEURAL_NETWORK_KEY: &str = "cells_best_brain";
 // types that cannot be easily serialized (like macroquad::Color).
 // Instead, we only save/load the neural network which is the key evolutionary data.
 
-/// Wrapper struct to save both the neural network and generation count
+/// Wrapper struct to save the neural network with score metrics
 #[derive(Serialize, Deserialize)]
 struct SavedBrain {
+    // Score metrics for comparison
+    score: f32,
+    children_count: usize,
+    energy_from_cells: f32,
+    age: f32,
+    // The neural network itself
     brain: NeuralNetwork,
     generation: usize,
 }
@@ -24,10 +30,21 @@ unsafe extern "C" {
     fn storage_load(key: *const u8, key_len: usize, buffer: *mut u8, buffer_len: usize) -> usize;
 }
 
-/// Save a neural network and generation to localStorage
+/// Save a neural network with score metrics to localStorage
 /// This is called each time the best cell reproduces
-pub fn save_best_neural_network(brain: &NeuralNetwork, generation: usize) {
+pub fn save_best_neural_network(
+    brain: &NeuralNetwork,
+    generation: usize,
+    score: f32,
+    children_count: usize,
+    energy_from_cells: f32,
+    age: f32,
+) {
     let saved_brain = SavedBrain {
+        score,
+        children_count,
+        energy_from_cells,
+        age,
         brain: brain.clone(),
         generation,
     };
@@ -72,11 +89,11 @@ pub fn load_best_neural_network() -> Option<(NeuralNetwork, usize)> {
         if len > 0 {
             buffer.truncate(len);
             if let Ok(json) = String::from_utf8(buffer) {
-                // Try to load as SavedBrain first (new format)
+                // Try to load as SavedBrain first (new format with score metrics)
                 if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(&json) {
                     println!(
-                        "🧠 Loaded best brain from localStorage (generation {})",
-                        saved_brain.generation
+                        "🧠 Loaded best brain from localStorage (generation {}, score {:.1})",
+                        saved_brain.generation, saved_brain.score
                     );
                     return Some((saved_brain.brain, saved_brain.generation));
                 }
@@ -96,11 +113,11 @@ pub fn load_best_neural_network() -> Option<(NeuralNetwork, usize)> {
     {
         // For native builds, load from file
         if let Ok(json) = std::fs::read_to_string("cells_best_brain.json") {
-            // Try to load as SavedBrain first (new format)
+            // Try to load as SavedBrain first (new format with score metrics)
             if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(&json) {
                 println!(
-                    "🧠 Loaded best brain from file (generation {})",
-                    saved_brain.generation
+                    "🧠 Loaded best brain from file (generation {}, score {:.1})",
+                    saved_brain.generation, saved_brain.score
                 );
                 return Some((saved_brain.brain, saved_brain.generation));
             }

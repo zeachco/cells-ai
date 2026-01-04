@@ -116,9 +116,9 @@ impl World {
             }
 
             println!(
-                "World reset! Spawned {} cells from best genome (fitness: {:.1})",
+                "World reset! Spawned {} cells from best genome (score: {:.1})",
                 spawn_count,
-                best_cell.total_energy_accumulated + (best_cell.children_count as f32 * 100.0)
+                best_cell.score()
             );
         } else {
             // No best cell genome, spawn fresh cells using cached brain
@@ -335,7 +335,14 @@ impl World {
 
                 // Save neural network if this is the best cell reproducing
                 if Some(idx) == best_cell_idx {
-                    crate::storage::save_best_neural_network(&cell.brain, cell.generation);
+                    crate::storage::save_best_neural_network(
+                        &cell.brain,
+                        cell.generation,
+                        cell.score(),
+                        cell.children_count,
+                        cell.energy_from_cells,
+                        cell.age,
+                    );
                     // Update cache with the newly saved brain
                     self.cached_best_brain = Some((cell.brain.clone(), cell.generation));
                 }
@@ -450,8 +457,8 @@ impl World {
     }
 
     fn update_stats(&mut self) {
-        // First, find the cell with the highest fitness (only alive cells)
-        let mut best_fitness = f32::MIN;
+        // First, find the cell with the highest score (only alive cells)
+        let mut best_score = f32::MIN;
         let mut best_cell_index = None;
         let mut alive_cells = Vec::new();
 
@@ -460,10 +467,10 @@ impl World {
             if cell.state == CellState::Alive {
                 alive_cells.push(cell);
 
-                // Use same fitness calculation as Stats
-                let fitness = cell.total_energy_accumulated + (cell.children_count as f32 * 100.0);
-                if fitness > best_fitness {
-                    best_fitness = fitness;
+                // Use new comprehensive score method
+                let score = cell.score();
+                if score > best_score {
+                    best_score = score;
                     best_cell_index = Some(i);
                 }
             }
@@ -540,7 +547,7 @@ impl World {
 
                 // Set stats to show the current best alive cell
                 self.stats.set(crate::stats::BestCellStats {
-                    total_energy_accumulated: best_cell.total_energy_accumulated,
+                    energy_from_cells: best_cell.energy_from_cells,
                     current_energy: best_cell.energy,
                     children_count: best_cell.children_count,
                     generation: best_cell.generation,
@@ -562,7 +569,7 @@ impl World {
                 if last_index < self.cells.len() {
                     let dead_cell = &self.cells[last_index];
                     self.stats.set(crate::stats::BestCellStats {
-                        total_energy_accumulated: dead_cell.total_energy_accumulated,
+                        energy_from_cells: dead_cell.energy_from_cells,
                         current_energy: dead_cell.energy,
                         children_count: dead_cell.children_count,
                         generation: dead_cell.generation,
