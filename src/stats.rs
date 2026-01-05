@@ -65,6 +65,7 @@ impl Stats {
         let line3 = "Generation: 99999";
         let line4 = "Age: 999.9";
         let line5 = "Score: 999999.9";
+        let line6 = "Pos: (9999.9, 9999.9)";
 
         let max_width = [
             measure_text(title, None, font_size as u16, 1.0).width,
@@ -73,6 +74,7 @@ impl Stats {
             measure_text(line3, None, font_size as u16, 1.0).width,
             measure_text(line4, None, font_size as u16, 1.0).width,
             measure_text(line5, None, font_size as u16, 1.0).width,
+            measure_text(line6, None, font_size as u16, 1.0).width,
         ]
         .iter()
         .cloned()
@@ -82,7 +84,7 @@ impl Stats {
         let bg_x = screen_w - max_width - padding - bg_padding * 2.0;
         let bg_y = padding - bg_padding;
         let bg_width = max_width + bg_padding * 2.0;
-        let bg_height = line_height * 6.0 + bg_padding;
+        let bg_height = line_height * 7.0 + bg_padding;
 
         Some((bg_x, bg_y, bg_width, bg_height))
     }
@@ -138,6 +140,7 @@ impl Stats {
             let score =
                 Self::calculate_score(best.children_count, best.energy_from_cells, best.age);
             let line5 = format!("Score: {:.1}", score);
+            let line6 = format!("Pos: ({:.1}, {:.1})", best.x, best.y);
 
             // Find the longest line for background width
             let max_width = [
@@ -147,6 +150,7 @@ impl Stats {
                 measure_text(&line3, None, font_size as u16, 1.0).width,
                 measure_text(&line4, None, font_size as u16, 1.0).width,
                 measure_text(&line5, None, font_size as u16, 1.0).width,
+                measure_text(&line6, None, font_size as u16, 1.0).width,
             ]
             .iter()
             .cloned()
@@ -157,7 +161,7 @@ impl Stats {
             let bg_x = screen_w - max_width - padding - bg_padding * 2.0;
             let bg_y = padding - bg_padding;
             let bg_width = max_width + bg_padding * 2.0;
-            let bg_height = line_height * 6.0 + bg_padding;
+            let bg_height = line_height * 7.0 + bg_padding;
 
             draw_rectangle(
                 bg_x,
@@ -226,6 +230,13 @@ impl Stats {
                 &line5,
                 x,
                 padding + font_size + line_height * 5.0,
+                font_size,
+                WHITE,
+            );
+            draw_text(
+                &line6,
+                x,
+                padding + font_size + line_height * 6.0,
                 font_size,
                 WHITE,
             );
