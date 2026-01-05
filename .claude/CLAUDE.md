@@ -78,7 +78,7 @@ Pre-commit hooks via lefthook automatically run:
 Each cell has:
 - **Individual State**: Position, energy, velocity, age (affects size and energy costs)
 - **Inherited Attributes**: Color, radius, speed, turn rate, energy chunk size, species multiplier, mass (max energy capacity)
-- **Neural Network Brain**: 20 inputs (5 sensors × 4 values), 4 outputs (actions)
+- **Neural Network Brain**: 21 inputs (5 sensors × 4 values + current energy level), 4 outputs (actions)
 - **Stats Tracking**: Total energy accumulated, children count (used for fitness calculation)
 
 **Energy System**:
@@ -98,7 +98,7 @@ Sensors prioritize: dead cells > high energy > close proximity
 
 #### Neural Network (src/neural_network.rs)
 - **Architecture**: Input → Hidden (ReLU) → Output
-- Hidden layer size: `2 * (inputs + outputs)` = 48 nodes
+- Hidden layer size: `2 * (inputs + outputs)` = 50 nodes
 - **Mutation**: 1-10% mutation rate on reproduction, adjusts weights by ±0.1, clamped to [-2.0, 2.0]
 - **Actions**: 0=no-op, 1=turn_left, 2=turn_right, 3=forward
 - Decision made each frame via `get_best_action()` (argmax of outputs)

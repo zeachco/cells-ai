@@ -166,7 +166,7 @@ impl Cell {
             (brain, *generation)
         } else {
             // No cached brain, create new random network
-            (NeuralNetwork::new(20, 4), 0)
+            (NeuralNetwork::new(21, 4), 0)
         };
 
         Cell {
@@ -264,11 +264,12 @@ impl Cell {
 
     // Normalize sensor inputs for neural network
     // Each sensor returns 4 values: angle, distance, mass, is_alive
-    // Total: 5 sensors × 4 values = 20 inputs
+    // Plus 1 value for current energy level
+    // Total: 5 sensors × 4 values + 1 energy = 21 inputs
     fn normalize_sensors(&self) -> Vec<f32> {
-        use crate::world::SENSOR_RANGE;
+        use crate::world::{DEPLETED_CELL_ENERGY, REPRODUCTION_ENERGY_THRESHOLD, SENSOR_RANGE};
         const MAX_MASS: f32 = 220.0; // Maximum mass value from spawn()
-        let mut inputs = Vec::with_capacity(20);
+        let mut inputs = Vec::with_capacity(21);
 
         for i in 0..5 {
             if i < self.nearest_cells.len() {
@@ -300,6 +301,13 @@ impl Cell {
                 inputs.push(-1.0); // is_alive (no target = dead)
             }
         }
+
+        // Add current energy level as final input
+        // Normalize: DEPLETED_CELL_ENERGY (-100) -> 0.0, REPRODUCTION_ENERGY_THRESHOLD (100) -> 1.0
+        let energy_range = REPRODUCTION_ENERGY_THRESHOLD - DEPLETED_CELL_ENERGY;
+        let normalized_energy =
+            ((self.energy - DEPLETED_CELL_ENERGY) / energy_range).clamp(0.0, 1.0);
+        inputs.push(normalized_energy);
 
         inputs
     }
