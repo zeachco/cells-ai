@@ -213,8 +213,28 @@ impl World {
             let target_camera_y = y - screen_h / 2.0;
 
             // Calculate delta (distance to target)
-            let delta_x = target_camera_x - self.camera.x;
-            let delta_y = target_camera_y - self.camera.y;
+            let mut delta_x = target_camera_x - self.camera.x;
+            let mut delta_y = target_camera_y - self.camera.y;
+
+            // Account for world wrapping - take shortest path around toroidal world
+            let world_width = self.config.world_width;
+            let world_height = self.config.world_height;
+
+            if delta_x.abs() > world_width / 2.0 {
+                if delta_x > 0.0 {
+                    delta_x -= world_width;
+                } else {
+                    delta_x += world_width;
+                }
+            }
+
+            if delta_y.abs() > world_height / 2.0 {
+                if delta_y > 0.0 {
+                    delta_y -= world_height;
+                } else {
+                    delta_y += world_height;
+                }
+            }
 
             // Move camera towards target using configured tracking speed
             self.camera.target_x = self.camera.x + delta_x * self.config.camera_tracking_speed;
@@ -787,6 +807,7 @@ impl World {
     pub fn render(&self) {
         // Render boundary lines (only if UI enabled)
         if self.config.show_ui {
+            self.render_grid();
             self.render_boundaries();
 
             // Render sensor lines first (so they appear behind cells)
@@ -798,9 +819,27 @@ impl World {
         let screen_w = screen_width();
         let screen_h = screen_height();
 
+        // Get world dimensions for wraparound rendering
+        let world_width = self.config.world_width;
+        let world_height = self.config.world_height;
+
+        // Define all possible wraparound positions
+        // Cells are rendered at multiple positions to show toroidal topology
+        let wraparound_offsets = [
+            (0.0, 0.0),                    // Original position
+            (-world_width, 0.0),           // Wrapped left
+            (world_width, 0.0),            // Wrapped right
+            (0.0, -world_height),          // Wrapped top
+            (0.0, world_height),           // Wrapped bottom
+            (-world_width, -world_height), // Top-left corner
+            (world_width, -world_height),  // Top-right corner
+            (-world_width, world_height),  // Bottom-left corner
+            (world_width, world_height),   // Bottom-right corner
+        ];
+
         // Render cells and count viewport cells
         for (idx, cell) in self.cells.iter().enumerate() {
-            // Check if cell is in viewport
+            // Count cells in viewport (only for original position)
             let screen_x = cell.x - self.camera.x;
             let screen_y = cell.y - self.camera.y;
             let margin = cell.get_current_radius() * 1.5;
@@ -813,20 +852,38 @@ impl World {
                 cells_in_viewport += 1;
             }
 
-            // Render the cell
-            cell.render(self.camera.x, self.camera.y);
+            // Render cell at all wraparound positions
+            for (dx, dy) in &wraparound_offsets {
+                // Adjust camera position to create wraparound effect
+                let adjusted_camera_x = self.camera.x - dx;
+                let adjusted_camera_y = self.camera.y - dy;
 
-            // Draw gold stroke around selected cell (only if UI enabled)
-            if self.selected_cell_index == Some(idx) {
-                let current_radius = cell.get_current_radius();
-                let gold = Color::new(1.0, 0.84, 0.0, 1.0); // Gold color
-                draw_circle_lines(
-                    screen_x,
-                    screen_y,
-                    current_radius + 3.0, // Slightly larger than cell
-                    4.0,                  // Thickness
-                    gold,
-                );
+                // cell.render() has built-in viewport culling, will skip if off-screen
+                cell.render(adjusted_camera_x, adjusted_camera_y);
+
+                // Draw selection highlight if this is the selected cell
+                if self.selected_cell_index == Some(idx) {
+                    let screen_x = cell.x - adjusted_camera_x;
+                    let screen_y = cell.y - adjusted_camera_y;
+                    let current_radius = cell.get_current_radius();
+
+                    // Only draw if on screen
+                    let margin = current_radius * 1.5;
+                    if !(screen_x < -margin
+                        || screen_x > screen_w + margin
+                        || screen_y < -margin
+                        || screen_y > screen_h + margin)
+                    {
+                        let gold = Color::new(1.0, 0.84, 0.0, 1.0);
+                        draw_circle_lines(
+                            screen_x,
+                            screen_y,
+                            current_radius + 3.0, // Slightly larger than cell
+                            4.0,                  // Thickness
+                            gold,
+                        );
+                    }
+                }
             }
         }
 
@@ -836,6 +893,67 @@ impl World {
 
             // Render best cell stats (top-right corner)
             self.stats.render();
+        }
+    }
+
+    fn render_grid(&self) {
+        let grid_spacing = 250.0;
+        let dot_radius = 2.0;
+        let dot_color = Color::new(1.0, 1.0, 1.0, 0.3); // White with low opacity
+
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+
+        // Get world dimensions for wraparound rendering
+        let world_width = self.config.world_width;
+        let world_height = self.config.world_height;
+
+        // Define all possible wraparound positions (same as cell rendering)
+        let wraparound_offsets = [
+            (0.0, 0.0),                    // Original position
+            (-world_width, 0.0),           // Wrapped left
+            (world_width, 0.0),            // Wrapped right
+            (0.0, -world_height),          // Wrapped top
+            (0.0, world_height),           // Wrapped bottom
+            (-world_width, -world_height), // Top-left corner
+            (world_width, -world_height),  // Top-right corner
+            (-world_width, world_height),  // Bottom-left corner
+            (world_width, world_height),   // Bottom-right corner
+        ];
+
+        // Calculate which grid points are visible on screen
+        // Start from the first grid point that could be visible
+        let start_x = ((self.camera.x / grid_spacing).floor() * grid_spacing).max(0.0);
+        let start_y = ((self.camera.y / grid_spacing).floor() * grid_spacing).max(0.0);
+
+        // Draw grid points within world boundaries at all wraparound positions
+        let mut y = start_y;
+        while y <= world_height {
+            let mut x = start_x;
+            while x <= world_width {
+                // Render dot at all wraparound positions
+                for (dx, dy) in &wraparound_offsets {
+                    // Adjust camera position to create wraparound effect
+                    let adjusted_camera_x = self.camera.x - dx;
+                    let adjusted_camera_y = self.camera.y - dy;
+
+                    // Convert world coordinates to screen coordinates
+                    let screen_x = x - adjusted_camera_x;
+                    let screen_y = y - adjusted_camera_y;
+
+                    // Only draw if on screen
+                    if screen_x >= -dot_radius
+                        && screen_x <= screen_w + dot_radius
+                        && screen_y >= -dot_radius
+                        && screen_y <= screen_h + dot_radius
+                    {
+                        draw_circle(screen_x, screen_y, dot_radius, dot_color);
+                    }
+                }
+
+                x += grid_spacing;
+            }
+            y += grid_spacing;
         }
     }
 
