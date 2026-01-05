@@ -162,6 +162,25 @@ impl World {
             cell.update(world_width, world_height);
         });
 
+        // Save best cell's brain if it just died
+        if let Some(best_idx) = self.last_best_cell_index
+            && best_idx < self.cells.len()
+        {
+            let best_cell = &self.cells[best_idx];
+            if best_cell.state == CellState::Corpse {
+                crate::storage::save_best_neural_network(
+                    &best_cell.brain,
+                    best_cell.generation,
+                    best_cell.score(),
+                    best_cell.children_count,
+                    best_cell.energy_from_cells,
+                    best_cell.age,
+                );
+                // Update cache with the saved brain
+                self.cached_best_brain = Some((best_cell.brain.clone(), best_cell.generation));
+            }
+        }
+
         // Build spatial grid for collision detection
         self.rebuild_spatial_grid();
         self.check_collisions();
