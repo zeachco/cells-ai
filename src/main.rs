@@ -21,7 +21,11 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut world = World::spawn();
+    // Load custom font
+    let font_bytes = include_bytes!("../assets/Inter-Regular.ttf");
+    let font = load_ttf_font_from_bytes(font_bytes).ok();
+
+    let mut world = World::spawn(font);
 
     loop {
         let delta_time = get_frame_time();
@@ -33,7 +37,7 @@ async fn main() {
 
         // Check if mouse is over stats box to skip camera input
         let mouse_pos = mouse_position();
-        let skip_camera_mouse = world.stats.is_mouse_over(mouse_pos.0, mouse_pos.1);
+        let skip_camera_mouse = world.is_mouse_over_stats(mouse_pos.0, mouse_pos.1);
 
         world.camera.handle_input(delta_time, skip_camera_mouse);
         world.camera.update();

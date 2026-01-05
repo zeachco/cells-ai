@@ -51,7 +51,7 @@ impl Stats {
     }
 
     // Get the bounds of the stats box for click detection
-    fn get_bounds(&self) -> Option<(f32, f32, f32, f32)> {
+    fn get_bounds(&self, font: Option<&Font>) -> Option<(f32, f32, f32, f32)> {
         self.best_cell.as_ref()?;
 
         let screen_w = screen_width();
@@ -68,13 +68,13 @@ impl Stats {
         let line6 = "Pos: (9999.9, 9999.9)";
 
         let max_width = [
-            measure_text(title, None, font_size as u16, 1.0).width,
-            measure_text(line1, None, font_size as u16, 1.0).width,
-            measure_text(line2, None, font_size as u16, 1.0).width,
-            measure_text(line3, None, font_size as u16, 1.0).width,
-            measure_text(line4, None, font_size as u16, 1.0).width,
-            measure_text(line5, None, font_size as u16, 1.0).width,
-            measure_text(line6, None, font_size as u16, 1.0).width,
+            measure_text(title, font, font_size as u16, 1.0).width,
+            measure_text(line1, font, font_size as u16, 1.0).width,
+            measure_text(line2, font, font_size as u16, 1.0).width,
+            measure_text(line3, font, font_size as u16, 1.0).width,
+            measure_text(line4, font, font_size as u16, 1.0).width,
+            measure_text(line5, font, font_size as u16, 1.0).width,
+            measure_text(line6, font, font_size as u16, 1.0).width,
         ]
         .iter()
         .cloned()
@@ -90,8 +90,8 @@ impl Stats {
     }
 
     // Check if mouse position is over the stats box
-    pub fn is_mouse_over(&self, mouse_x: f32, mouse_y: f32) -> bool {
-        if let Some((x, y, w, h)) = self.get_bounds() {
+    pub fn is_mouse_over(&self, mouse_x: f32, mouse_y: f32, font: Option<&Font>) -> bool {
+        if let Some((x, y, w, h)) = self.get_bounds(font) {
             mouse_x >= x && mouse_x <= x + w && mouse_y >= y && mouse_y <= y + h
         } else {
             false
@@ -124,12 +124,15 @@ impl Stats {
     }
 
     // Render stats in top-right corner
-    pub fn render(&self) {
+    pub fn render(&self, font: Option<&Font>) {
         if let Some(best) = &self.best_cell {
             let screen_w = screen_width();
             let font_size = 24.0;
             let line_height = 30.0;
-            let padding = 20.0;
+            let padding = 30.0;
+
+            let score =
+                Self::calculate_score(best.children_count, best.energy_from_cells, best.age);
 
             // Calculate text widths (approximate)
             let title = "Best Cell:";
@@ -137,20 +140,18 @@ impl Stats {
             let line2 = format!("Children: {}", best.children_count);
             let line3 = format!("Generation: {}", best.generation);
             let line4 = format!("Age: {:.1}", best.age);
-            let score =
-                Self::calculate_score(best.children_count, best.energy_from_cells, best.age);
             let line5 = format!("Score: {:.1}", score);
             let line6 = format!("Pos: ({:.1}, {:.1})", best.x, best.y);
 
             // Find the longest line for background width
             let max_width = [
-                measure_text(title, None, font_size as u16, 1.0).width,
-                measure_text(&line1, None, font_size as u16, 1.0).width,
-                measure_text(&line2, None, font_size as u16, 1.0).width,
-                measure_text(&line3, None, font_size as u16, 1.0).width,
-                measure_text(&line4, None, font_size as u16, 1.0).width,
-                measure_text(&line5, None, font_size as u16, 1.0).width,
-                measure_text(&line6, None, font_size as u16, 1.0).width,
+                measure_text(title, font, font_size as u16, 1.0).width,
+                measure_text(&line1, font, font_size as u16, 1.0).width,
+                measure_text(&line2, font, font_size as u16, 1.0).width,
+                measure_text(&line3, font, font_size as u16, 1.0).width,
+                measure_text(&line4, font, font_size as u16, 1.0).width,
+                measure_text(&line5, font, font_size as u16, 1.0).width,
+                measure_text(&line6, font, font_size as u16, 1.0).width,
             ]
             .iter()
             .cloned()
@@ -166,19 +167,19 @@ impl Stats {
             draw_rectangle(
                 bg_x,
                 bg_y,
-                bg_width,
-                bg_height,
-                Color::new(0.0, 0.0, 0.0, 0.7),
+                bg_width + bg_padding,
+                bg_height + bg_padding,
+                Color::new(0.0, 0.0, 0.0, 0.8),
             );
 
             // Draw highlighted border if selected
             if self.selected {
-                let border_thickness = 3.0;
+                let border_thickness = 2.0;
                 draw_rectangle_lines(
                     bg_x,
                     bg_y,
-                    bg_width,
-                    bg_height,
+                    bg_width + bg_padding,
+                    bg_height + bg_padding,
                     border_thickness,
                     best.color,
                 );
@@ -191,54 +192,56 @@ impl Stats {
             } else {
                 "Best Cell: (DEAD)"
             };
-            draw_text(title_with_status, x, padding + font_size, font_size, WHITE);
 
-            // Draw color indicator
-            let color_y = padding + font_size + line_height / 2.0;
-            draw_circle(x + 10.0, color_y, 8.0, best.color);
+            let text_params = TextParams {
+                font,
+                font_size: font_size as u16,
+                color: WHITE,
+                ..Default::default()
+            };
 
-            // Draw stats
-            draw_text(
+            draw_text_ex(
+                title_with_status,
+                x,
+                padding + font_size,
+                text_params.clone(),
+            );
+
+            draw_text_ex(
                 &line1,
                 x,
                 padding + font_size + line_height,
-                font_size,
-                WHITE,
+                text_params.clone(),
             );
-            draw_text(
+            draw_text_ex(
                 &line2,
                 x,
                 padding + font_size + line_height * 2.0,
-                font_size,
-                WHITE,
+                text_params.clone(),
             );
-            draw_text(
+            draw_text_ex(
                 &line3,
                 x,
                 padding + font_size + line_height * 3.0,
-                font_size,
-                WHITE,
+                text_params.clone(),
             );
-            draw_text(
+            draw_text_ex(
                 &line4,
                 x,
                 padding + font_size + line_height * 4.0,
-                font_size,
-                WHITE,
+                text_params.clone(),
             );
-            draw_text(
+            draw_text_ex(
                 &line5,
                 x,
                 padding + font_size + line_height * 5.0,
-                font_size,
-                WHITE,
+                text_params.clone(),
             );
-            draw_text(
+            draw_text_ex(
                 &line6,
                 x,
                 padding + font_size + line_height * 6.0,
-                font_size,
-                WHITE,
+                text_params,
             );
         }
     }

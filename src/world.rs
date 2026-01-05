@@ -55,10 +55,12 @@ pub struct World {
     config: SimulationConfig,
     // Cached best neural network (brain, generation) - loaded once from storage
     cached_best_brain: Option<(crate::neural_network::NeuralNetwork, usize)>,
+    // Custom font for rendering
+    font: Option<Font>,
 }
 
 impl World {
-    pub fn spawn() -> Self {
+    pub fn spawn(font: Option<Font>) -> Self {
         let config = get_config();
 
         // Load best brain once from storage and cache it
@@ -91,6 +93,7 @@ impl World {
             color_diversity: 0.0,
             config,
             cached_best_brain,
+            font,
         }
     }
 
@@ -242,11 +245,20 @@ impl World {
         }
     }
 
+    // Check if mouse is over stats box
+    pub fn is_mouse_over_stats(&self, mouse_x: f32, mouse_y: f32) -> bool {
+        self.stats
+            .is_mouse_over(mouse_x, mouse_y, self.font.as_ref())
+    }
+
     // Handle mouse clicks on the stats box
     pub fn handle_stats_click(&mut self) {
         if is_mouse_button_pressed(MouseButton::Left) {
             let mouse_pos = mouse_position();
-            if self.stats.is_mouse_over(mouse_pos.0, mouse_pos.1) {
+            if self
+                .stats
+                .is_mouse_over(mouse_pos.0, mouse_pos.1, self.font.as_ref())
+            {
                 self.stats.toggle_selection();
             }
         }
@@ -892,7 +904,7 @@ impl World {
             self.render_stats(cells_in_viewport);
 
             // Render best cell stats (top-right corner)
-            self.stats.render();
+            self.stats.render(self.font.as_ref());
         }
     }
 
