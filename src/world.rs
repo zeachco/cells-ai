@@ -17,10 +17,10 @@ const CELL_CAP_STEP: usize = 100; // Adjust cap by 100 cells at a time
 // World simulation constants
 pub const SENSOR_RANGE: f32 = 200.0; // Public so cells can normalize sensor inputs
 const SENSOR_COUNT: usize = 5;
-const REPRODUCTION_ENERGY_THRESHOLD: f32 = 100.0;
+pub const REPRODUCTION_ENERGY_THRESHOLD: f32 = 100.0; // Public for energy normalization
 const CHILD_ENERGY_RATIO: f32 = 2.0 / 3.0;
 const PARENT_ENERGY_RATIO: f32 = 1.0 / 3.0;
-const DEPLETED_CELL_ENERGY: f32 = -100.0;
+pub const DEPLETED_CELL_ENERGY: f32 = -100.0; // Public for energy normalization
 
 // Read-only cell data for parallel collision detection
 #[derive(Clone, Copy)]
