@@ -821,8 +821,10 @@ impl World {
         if self.config.show_ui {
             self.render_grid();
             self.render_boundaries();
+        }
 
-            // Render sensor lines first (so they appear behind cells)
+        // Render sensor lines first (so they appear behind cells)
+        if self.config.show_sensor_lines {
             self.render_sensor_lines();
         }
 
