@@ -8,6 +8,7 @@ pub struct SimulationConfig {
     pub world_height: f32,
     pub initial_cell_count: usize,
     pub show_ui: bool,
+    pub show_sensor_lines: bool,
     pub camera_tracking_speed: f32,
 }
 
@@ -18,6 +19,7 @@ impl Default for SimulationConfig {
             world_height: 7000.0,
             initial_cell_count: 1000,
             show_ui: true,
+            show_sensor_lines: true,
             camera_tracking_speed: 0.5,
         }
     }
@@ -30,6 +32,7 @@ impl SimulationConfig {
             world_height: 7000.0,
             initial_cell_count: 1000,
             show_ui: false,
+            show_sensor_lines: true,
             camera_tracking_speed: 0.02,
         }
     }
