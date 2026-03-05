@@ -158,7 +158,7 @@ impl NeuralNetwork {
         outputs
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, _)| idx)
             .unwrap_or(0)
     }
@@ -218,5 +218,34 @@ mod tests {
         let inputs = vec![0.1, 0.2, 0.3, 0.4, 0.5];
         let action = nn.get_best_action(&inputs);
         assert!(action < 4);
+    }
+
+    #[test]
+    fn test_get_best_action_nan() {
+        let mut nn = NeuralNetwork::new(1, 1);
+        // Set weights to zero to avoid random noise interference
+        nn.weights_ih = vec![vec![0.0]];
+        nn.bias_h = vec![0.0];
+        nn.weights_ho = vec![vec![0.0]];
+        nn.bias_o = vec![0.0];
+
+        // This input should result in NaN after some operations in a more complex network,
+        // but here we just want to test if get_best_action panics when forward() returns NaN.
+        // We can't easily force forward() to return NaN without changing it,
+        // but we can mock forward's results if we could, but let's just make a test that
+        // specifically triggers the partial_cmp(NaN) case if we can.
+
+        // Actually, let's just test get_best_action directly by injecting NaN in inputs
+        // and hoping it propagates. ReLU(NaN) is NaN in some implementations, but here
+        // it is x.max(0.0). NaN.max(0.0) is 0.0 in Rust!
+        // So we need to find another way to get NaN in outputs.
+
+        // If we set a weight to NaN, it will propagate.
+        nn.weights_ho[0][0] = f32::NAN;
+        let inputs = vec![1.0];
+        // forward will compute: sum = bias_o[0] + weights_ho[0][0] * hidden[0]
+        // sum = 0.0 + NaN * ReLU(0.0 + 0.0 * 1.0) = NaN
+        let action = nn.get_best_action(&inputs);
+        assert_eq!(action, 0); // Should not panic and return the only available action
     }
 }
