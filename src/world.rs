@@ -16,6 +16,7 @@ const CELL_CAP_STEP: usize = 100; // Adjust cap by 100 cells at a time
 
 // World simulation constants
 pub const SENSOR_RANGE: f32 = 200.0; // Public so cells can normalize sensor inputs
+const SENSOR_RANGE_SQUARED: f32 = SENSOR_RANGE * SENSOR_RANGE;
 const SENSOR_COUNT: usize = 5;
 pub const REPRODUCTION_ENERGY_THRESHOLD: f32 = 100.0; // Public for energy normalization
 const CHILD_ENERGY_RATIO: f32 = 2.0 / 3.0;
@@ -456,12 +457,14 @@ impl World {
                         dy = dy - dy.signum() * world_height;
                     }
 
-                    let distance = (dx * dx + dy * dy).sqrt();
+                    let distance_squared = dx * dx + dy * dy;
 
-                    // Filter out cells that are too far
-                    if distance > SENSOR_RANGE {
+                    // Filter out cells that are too far using squared distance to avoid sqrt()
+                    if distance_squared > SENSOR_RANGE_SQUARED {
                         return None;
                     }
+
+                    let distance = distance_squared.sqrt();
 
                     // Calculate angle to target relative to cell's facing direction
                     let angle_to_target = dy.atan2(dx);
