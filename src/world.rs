@@ -495,9 +495,9 @@ impl World {
                     // Then by energy descending, then by distance ascending
                     is_alive_a
                         .partial_cmp(&is_alive_b)
-                        .unwrap()
-                        .then(energy_b.partial_cmp(&energy_a).unwrap())
-                        .then(a.2.partial_cmp(&b.2).unwrap())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then(energy_b.partial_cmp(&energy_a).unwrap_or(std::cmp::Ordering::Equal))
+                        .then(a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
                 });
                 // Keep only the top SENSOR_COUNT
                 sensor_data.truncate(SENSOR_COUNT);
