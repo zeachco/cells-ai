@@ -246,3 +246,45 @@ impl Stats {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_score_zeros() {
+        let score = Stats::calculate_score(0, 0.0, 0.0);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_calculate_score_children() {
+        let score = Stats::calculate_score(2, 0.0, 0.0);
+        assert_eq!(score, 200.0);
+    }
+
+    #[test]
+    fn test_calculate_score_energy() {
+        let score = Stats::calculate_score(0, 50.5, 0.0);
+        assert_eq!(score, 50.5);
+    }
+
+    #[test]
+    fn test_calculate_score_age() {
+        let score = Stats::calculate_score(0, 0.0, 10.0);
+        assert_eq!(score, 100.0);
+    }
+
+    #[test]
+    fn test_calculate_score_combination() {
+        let score = Stats::calculate_score(1, 20.0, 5.0);
+        assert_eq!(score, 170.0); // 100 + 20 + 50
+    }
+
+    #[test]
+    fn test_calculate_score_large_values() {
+        let score = Stats::calculate_score(1000, 10000.0, 1000.0);
+        // 1000 * 100 + 10000 + 1000 * 10 = 100000 + 10000 + 10000 = 120000
+        assert_eq!(score, 120000.0);
+    }
+}
