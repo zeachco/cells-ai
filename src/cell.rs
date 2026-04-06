@@ -6,8 +6,12 @@ const CONSTANT_FORWARD_FORCE: f32 = 0.1;
 const BOOST_ENERGY_MULTIPLIER: f32 = 1.5;
 const METABOLISM_ENERGY_LOSS: f32 = 0.03;
 const CORPSE_DECAY_RATE: f32 = 0.02;
-const TURN_ENERGY_COST: f32 = 0.45;
-const FORWARD_ENERGY_COST: f32 = 0.9;
+const TURN_ENERGY_COST: f32 = 0.05;
+const FORWARD_ENERGY_COST: f32 = 0.1;
+// Hunger: metabolism multiplier grows the longer a cell goes without eating.
+// Ramps from 1x up to HUNGER_MAX_MULTIPLIER over HUNGER_RAMP_TICKS ticks.
+const HUNGER_RAMP_TICKS: f32 = 300.0;
+const HUNGER_MAX_MULTIPLIER: f32 = 4.0;
 const GROWTH_AGE_THRESHOLD: f32 = 20.0;
 const ADULT_AGE_THRESHOLD: f32 = 30.0;
 const MAX_AGE_FOR_COST: f32 = 100.0;
@@ -38,6 +42,9 @@ pub struct Cell {
     pub energy_from_cells: f32,        // Energy gained specifically from reaching other cells
     pub children_count: usize,         // Number of children produced
     pub generation: usize,             // Generation count (0 for initial, 1+ for descendants)
+    pub ticks_since_last_fed: f32,     // Drives hunger multiplier on metabolism
+    pub tracking_score: f32,           // Accumulated reward for turning toward corpses
+    pub prev_corpse_angle: Option<f32>, // Angle to nearest corpse last tick (radians from front)
 
     // ===== Sensors =====
     // Each sensor returns: (cell_index, angle_from_front, distance, mass, is_alive)
@@ -186,6 +193,9 @@ impl Cell {
             energy_from_cells: 0.0,          // No energy from cells yet
             children_count: 0,
             generation: loaded_generation, // Use loaded generation from saved brain
+            ticks_since_last_fed: 0.0,
+            tracking_score: 0.0,
+            prev_corpse_angle: None,
 
             // Sensors
             nearest_cells: Vec::new(),
@@ -242,6 +252,9 @@ impl Cell {
             energy_from_cells: 0.0,        // No energy from cells yet
             children_count: 0,
             generation: self.generation + 1, // Increment generation
+            ticks_since_last_fed: 0.0,
+            tracking_score: 0.0,
+            prev_corpse_angle: None,
 
             // Sensors
             nearest_cells: Vec::new(),
@@ -345,11 +358,58 @@ impl Cell {
 
         // Passive energy loss for all cells
         if self.state == CellState::Alive {
-            // Alive cells lose energy slowly (metabolism)
-            self.energy -= METABOLISM_ENERGY_LOSS;
+            // Hunger: metabolism scales up the longer a cell goes without eating,
+            // pressuring cells to actively seek food rather than drift passively.
+            self.ticks_since_last_fed += 1.0;
+            let hunger_multiplier = (1.0
+                + (self.ticks_since_last_fed / HUNGER_RAMP_TICKS) * (HUNGER_MAX_MULTIPLIER - 1.0))
+                .min(HUNGER_MAX_MULTIPLIER);
+            self.energy -= METABOLISM_ENERGY_LOSS * hunger_multiplier;
 
             // Use neural network to decide action instead of random movement
             self.decide_action();
+
+            // Reward alignment toward the nearest corpse each tick.
+            // angle_from_front is already atan2(target)-cell_angle wrapped to -PI..PI.
+            // Logarithmic reward within ±90°: precision near 0° is worth more.
+            // Extreme quadratic penalty beyond ±90°.
+            let corpse_angle = self
+                .nearest_cells
+                .iter()
+                .filter(|&&(_, _, _, _, is_alive)| is_alive == 0.0)
+                .max_by(|&&(_, _, _, mass_a, _), &&(_, _, _, mass_b, _)| {
+                    mass_a
+                        .partial_cmp(&mass_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|&(_, angle, _, _, _)| angle);
+            if let Some(curr_angle) = corpse_angle {
+                let half_turn = std::f32::consts::FRAC_PI_2;
+                let abs_diff = curr_angle.abs();
+
+                // Alignment reward: logarithmic within ±90°, extreme penalty beyond
+                let alignment_reward = if abs_diff < half_turn {
+                    // Logarithmic: approaches 1 near 0°, reaches 0 at 90°
+                    let k = 10.0_f32;
+                    let alignment = 1.0 - abs_diff / half_turn;
+                    (1.0 + k * alignment).ln() / (1.0 + k).ln()
+                } else {
+                    // Extreme quadratic penalty: 0 at 90°, -3 at 180°
+                    let beyond = (abs_diff - half_turn) / half_turn;
+                    -3.0 * beyond * beyond
+                };
+
+                // Drift bonus: reward for getting closer to the target angle,
+                // penalty for drifting away (scaled relative to half_turn)
+                let drift_reward = if let Some(prev) = self.prev_corpse_angle {
+                    (prev.abs() - abs_diff) / half_turn
+                } else {
+                    0.0
+                };
+
+                self.tracking_score += alignment_reward + drift_reward;
+            }
+            self.prev_corpse_angle = corpse_angle;
         } else if self.state == CellState::Corpse {
             // Corpse decay: lose energy per tick
             self.energy -= CORPSE_DECAY_RATE;
@@ -383,6 +443,9 @@ impl Cell {
     // Called when cell gains energy (from feeding)
     // For young cells (age < GROWTH_AGE_THRESHOLD), energy is lost to growth
     pub fn gain_energy(&mut self, amount: f32) {
+        // Reset hunger counter — cell has found food
+        self.ticks_since_last_fed = 0.0;
+
         // Track total energy accumulated
         self.total_energy_accumulated += amount;
 
@@ -411,7 +474,11 @@ impl Cell {
         // Age: 10 points per age unit (secondary metric - older cells have survived longer)
         let age_score = self.age * 10.0;
 
-        children_score + energy_score + age_score
+        // Tracking: reward accumulated angle-improvement toward corpses.
+        // Scale by 50 so ~100 ticks of good tracking ≈ half a child's worth of score.
+        let tracking = self.tracking_score * 50.0;
+
+        children_score + energy_score + age_score + tracking
     }
 
     pub fn render(&self, camera_x: f32, camera_y: f32) {
