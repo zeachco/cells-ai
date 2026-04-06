@@ -68,12 +68,14 @@ impl World {
         let cached_best_brain = crate::storage::load_best_neural_network();
 
         let mut cells = Vec::new();
-        for _ in 0..config.initial_cell_count {
-            cells.push(Cell::spawn(
-                config.world_width,
-                config.world_height,
-                &cached_best_brain,
-            ));
+        for i in 0..config.initial_cell_count {
+            let mut cell = Cell::spawn(config.world_width, config.world_height, &cached_best_brain);
+            // Half the population starts with low energy so they die quickly,
+            // seeding the world with corpses for others to eat.
+            if i % 2 == 1 {
+                cell.energy = rand::gen_range(0.0, REPRODUCTION_ENERGY_THRESHOLD * 0.5);
+            }
+            cells.push(cell);
         }
 
         World {
@@ -499,7 +501,11 @@ impl World {
                     is_alive_a
                         .partial_cmp(&is_alive_b)
                         .unwrap_or(std::cmp::Ordering::Equal)
-                        .then(energy_b.partial_cmp(&energy_a).unwrap_or(std::cmp::Ordering::Equal))
+                        .then(
+                            energy_b
+                                .partial_cmp(&energy_a)
+                                .unwrap_or(std::cmp::Ordering::Equal),
+                        )
                         .then(a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
                 });
                 // Keep only the top SENSOR_COUNT
