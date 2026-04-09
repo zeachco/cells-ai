@@ -486,7 +486,7 @@ impl Cell {
         children_score + energy_score + age_score + tracking
     }
 
-    pub fn render(&self, camera_x: f32, camera_y: f32) {
+    pub fn render(&self, camera_x: f32, camera_y: f32, show_glow: bool) {
         let screen_x = self.x - camera_x;
         let screen_y = self.y - camera_y;
         let current_radius = self.get_current_radius();
@@ -529,8 +529,8 @@ impl Cell {
                 (false, 0.0, 0.0)
             };
 
-        // Draw gradient halo effect (only for alive cells)
-        if self.state == CellState::Alive {
+        // Draw gradient halo effect (only for alive cells and when glow is enabled)
+        if self.state == CellState::Alive && show_glow {
             let halo_layers = 5;
             for i in 0..halo_layers {
                 let t = (i as f32) / (halo_layers as f32);
@@ -546,7 +546,7 @@ impl Cell {
         // Draw blob deformation if approaching corpse
         if should_deform {
             let blob_count = 8;
-            let extension = current_radius * 0.5 * deform_strength;
+            let extension = current_radius * 0.75 * deform_strength;
 
             for i in 0..blob_count {
                 let angle_offset = (i as f32 / blob_count as f32) * std::f32::consts::TAU;

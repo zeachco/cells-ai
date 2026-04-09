@@ -882,7 +882,7 @@ impl World {
                 let adjusted_camera_y = self.camera.y - dy;
 
                 // cell.render() has built-in viewport culling, will skip if off-screen
-                cell.render(adjusted_camera_x, adjusted_camera_y);
+                cell.render(adjusted_camera_x, adjusted_camera_y, self.config.show_ui);
 
                 // Draw selection highlight if this is the selected cell
                 if self.selected_cell_index == Some(idx) {

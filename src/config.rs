@@ -17,7 +17,7 @@ impl Default for SimulationConfig {
         Self {
             world_width: 8000.0,
             world_height: 7000.0,
-            initial_cell_count: 1000,
+            initial_cell_count: 5000,
             show_ui: true,
             show_sensor_lines: true,
             camera_tracking_speed: 0.5,
