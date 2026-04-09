@@ -492,7 +492,7 @@ impl Cell {
         let current_radius = self.get_current_radius();
 
         // Viewport culling: only render if cell is visible on screen
-        let margin = current_radius * 1.5; // Account for direction line
+        let margin = current_radius * 3.0; // Increased margin for halo effect
         let screen_w = screen_width();
         let screen_h = screen_height();
 
@@ -504,18 +504,99 @@ impl Cell {
             return; // Cell is outside viewport, skip rendering
         }
 
-        // Draw the cell body
+        // Find nearest dead cell for blob deformation
+        let nearest_corpse = self
+            .nearest_cells
+            .iter()
+            .filter(|&&(_, _, _, _, is_alive)| is_alive == 0.0)
+            .min_by(|&&(_, _, dist_a, _, _), &&(_, _, dist_b, _, _)| {
+                dist_a
+                    .partial_cmp(&dist_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        // Calculate blob deformation parameters
+        let deformation_threshold = current_radius * 4.0; // Start deforming at 4x radius distance
+        let (should_deform, corpse_angle, deform_strength) =
+            if let Some(&(_, angle, distance, _, _)) = nearest_corpse {
+                if self.state == CellState::Alive && distance < deformation_threshold {
+                    let strength = (1.0 - (distance / deformation_threshold)).max(0.0);
+                    (true, angle, strength)
+                } else {
+                    (false, 0.0, 0.0)
+                }
+            } else {
+                (false, 0.0, 0.0)
+            };
+
+        // Draw gradient halo effect (only for alive cells)
         if self.state == CellState::Alive {
-            // Alive cells are filled with their color
-            draw_circle(screen_x, screen_y, current_radius, self.color);
+            let halo_layers = 5;
+            for i in 0..halo_layers {
+                let t = (i as f32) / (halo_layers as f32);
+                let halo_radius = current_radius * (1.0 + t * 1.2);
+                let alpha = (1.0 - t) * 0.3; // Fade out from 30% to 0%
+
+                let halo_color = Color::new(self.color.r, self.color.g, self.color.b, alpha);
+
+                draw_circle(screen_x, screen_y, halo_radius, halo_color);
+            }
+        }
+
+        // Draw blob deformation if approaching corpse
+        if should_deform {
+            let blob_count = 8;
+            let extension = current_radius * 0.5 * deform_strength;
+
+            for i in 0..blob_count {
+                let angle_offset = (i as f32 / blob_count as f32) * std::f32::consts::TAU;
+                let total_angle = self.angle + corpse_angle + angle_offset;
+
+                // Calculate blob position - extends more strongly in the direction of the corpse
+                let angle_diff = (angle_offset - corpse_angle).abs();
+                let directional_strength = (1.0 - (angle_diff / std::f32::consts::PI)).max(0.0);
+                let blob_extension = extension * directional_strength.powf(2.0);
+
+                let blob_x = screen_x + total_angle.cos() * (current_radius + blob_extension * 0.5);
+                let blob_y = screen_y + total_angle.sin() * (current_radius + blob_extension * 0.5);
+                let blob_radius = current_radius * 0.3 * (1.0 + directional_strength * 0.5);
+
+                let blob_alpha = 0.6 * directional_strength;
+                let blob_color = Color::new(self.color.r, self.color.g, self.color.b, blob_alpha);
+
+                draw_circle(blob_x, blob_y, blob_radius, blob_color);
+            }
+        }
+
+        // Draw the cell body with antialiasing simulation
+        if self.state == CellState::Alive {
+            // Antialiasing: draw multiple slightly larger circles with decreasing alpha
+            for i in 0..3 {
+                let aa_radius = current_radius + (i as f32 * 0.5);
+                let aa_alpha = if i == 0 { 1.0 } else { 0.3 / (i as f32) };
+                let aa_color = Color::new(self.color.r, self.color.g, self.color.b, aa_alpha);
+                draw_circle(screen_x, screen_y, aa_radius, aa_color);
+            }
         } else {
-            // Corpse cells are grayed out (reduced saturation and brightness)
+            // Corpse cells are grayed out with halo effect
             let gray_color = Color::new(
                 self.color.r * 0.3,
                 self.color.g * 0.3,
                 self.color.b * 0.3,
-                self.color.a,
+                1.0,
             );
+
+            // Subtle halo for corpses
+            for i in 0..3 {
+                let t = (i as f32) / 3.0;
+                let halo_radius = current_radius * (1.0 + t * 0.5);
+                let alpha = (1.0 - t) * 0.15;
+
+                let halo_color = Color::new(gray_color.r, gray_color.g, gray_color.b, alpha);
+
+                draw_circle(screen_x, screen_y, halo_radius, halo_color);
+            }
+
             draw_circle_lines(screen_x, screen_y, current_radius, 2.0, gray_color);
         }
 

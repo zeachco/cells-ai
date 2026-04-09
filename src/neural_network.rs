@@ -223,10 +223,11 @@ mod tests {
     #[test]
     fn test_get_best_action_nan() {
         let mut nn = NeuralNetwork::new(1, 1);
+        // hidden_size = 2 * (1 + 1) = 4
         // Set weights to zero to avoid random noise interference
-        nn.weights_ih = vec![vec![0.0]];
-        nn.bias_h = vec![0.0];
-        nn.weights_ho = vec![vec![0.0]];
+        nn.weights_ih = vec![vec![0.0]; 4]; // 4 rows (hidden neurons), 1 column (inputs)
+        nn.bias_h = vec![0.0; 4]; // 4 hidden neurons
+        nn.weights_ho = vec![vec![0.0; 4]]; // 1 row (outputs), 4 columns (hidden neurons)
         nn.bias_o = vec![0.0];
 
         // This input should result in NaN after some operations in a more complex network,
