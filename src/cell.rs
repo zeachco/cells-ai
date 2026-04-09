@@ -404,15 +404,30 @@ impl Cell {
                     -3.0 * beyond * beyond
                 };
 
-                // Drift bonus: reward for getting closer to the target angle,
-                // penalty for drifting away (scaled relative to half_turn)
-                let drift_reward = if let Some(prev) = self.prev_corpse_angle {
-                    (prev.abs() - abs_diff) / half_turn
+                // Turning direction reward: penalize turning away from target, reward turning toward it.
+                // When corpse is to the right (curr_angle > 0), turning right (angle_velocity > 0) is good.
+                // When corpse is to the left (curr_angle < 0), turning left (angle_velocity < 0) is good.
+                // The product curr_angle * angle_velocity is positive when turning correctly,
+                // negative when turning the wrong way. Scale by 10 to make it significant.
+                let turn_direction_reward = curr_angle * self.angle_velocity * 10.0;
+
+                // Penalize excessive turning (spinning too fast)
+                // Quadratic penalty starts kicking in when abs(angle_velocity) > 0.1
+                let excessive_turn_penalty =
+                    -(self.angle_velocity.abs().max(0.1) - 0.1).powi(2) * 50.0;
+
+                // Penalize inaction when misaligned (not turning when you should)
+                // If abs(curr_angle) > threshold and angle_velocity is near zero, apply penalty
+                let inaction_penalty = if abs_diff > 0.2 && self.angle_velocity.abs() < 0.01 {
+                    -abs_diff * 2.0 // Penalty scales with how misaligned we are
                 } else {
                     0.0
                 };
 
-                self.tracking_score += alignment_reward + drift_reward;
+                self.tracking_score += alignment_reward
+                    + turn_direction_reward
+                    + excessive_turn_penalty
+                    + inaction_penalty;
             }
             self.prev_corpse_angle = corpse_angle;
         } else if self.state == CellState::Corpse {

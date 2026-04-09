@@ -15,8 +15,8 @@ pub struct SimulationConfig {
 impl Default for SimulationConfig {
     fn default() -> Self {
         Self {
-            world_width: 9000.0,
-            world_height: 9000.0,
+            world_width: 60000.0,
+            world_height: 40000.0,
             initial_cell_count: 5000,
             show_ui: true,
             show_sensor_lines: true,
