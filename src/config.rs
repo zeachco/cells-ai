@@ -28,12 +28,12 @@ impl Default for SimulationConfig {
 impl SimulationConfig {
     pub fn demo() -> Self {
         Self {
-            world_width: 8000.0,
-            world_height: 7000.0,
-            initial_cell_count: 1000,
-            show_ui: false,
+            world_width: 60000.0,
+            world_height: 40000.0,
+            initial_cell_count: 5000,
+            show_ui: true,
             show_sensor_lines: true,
-            camera_tracking_speed: 0.02,
+            camera_tracking_speed: 0.5,
         }
     }
 }
