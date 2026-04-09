@@ -757,70 +757,108 @@ impl World {
     }
 
     fn render_sensor_lines(&self) {
+        let world_width = self.config.world_width;
+        let world_height = self.config.world_height;
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+
+        // Define all possible wraparound positions (same as cell rendering)
+        let wraparound_offsets = [
+            (0.0, 0.0),                    // Original position
+            (-world_width, 0.0),           // Wrapped left
+            (world_width, 0.0),            // Wrapped right
+            (0.0, -world_height),          // Wrapped top
+            (0.0, world_height),           // Wrapped bottom
+            (-world_width, -world_height), // Top-left corner
+            (world_width, -world_height),  // Top-right corner
+            (-world_width, world_height),  // Bottom-left corner
+            (world_width, world_height),   // Bottom-right corner
+        ];
+
         for cell in &self.cells {
             // Only draw sensors for alive cells
             if cell.state != CellState::Alive {
                 continue;
             }
 
-            for &(target_idx, _angle, _distance, _mass, _is_alive) in &cell.nearest_cells {
-                // Safety check: ensure target index is valid
-                if target_idx >= self.cells.len() {
-                    continue;
+            // Render sensor lines for each wraparound position
+            for (offset_x, offset_y) in &wraparound_offsets {
+                // Adjust camera position to create wraparound effect
+                let adjusted_camera_x = self.camera.x - offset_x;
+                let adjusted_camera_y = self.camera.y - offset_y;
+
+                // Check if cell is visible at this wraparound position
+                let cell_screen_x = cell.x - adjusted_camera_x;
+                let cell_screen_y = cell.y - adjusted_camera_y;
+                let margin = SENSOR_RANGE; // Use sensor range as margin
+
+                if cell_screen_x < -margin
+                    || cell_screen_x > screen_w + margin
+                    || cell_screen_y < -margin
+                    || cell_screen_y > screen_h + margin
+                {
+                    continue; // Skip if cell not visible at this wraparound position
                 }
 
-                let target = &self.cells[target_idx];
+                for &(target_idx, _angle, _distance, _mass, _is_alive) in &cell.nearest_cells {
+                    // Safety check: ensure target index is valid
+                    if target_idx >= self.cells.len() {
+                        continue;
+                    }
 
-                // Calculate vector from cell to target
-                let mut dx = target.x - cell.x;
-                let mut dy = target.y - cell.y;
+                    let target = &self.cells[target_idx];
 
-                // Handle world wrapping for line drawing
-                if dx.abs() > self.config.world_width / 2.0 {
-                    dx = dx - dx.signum() * self.config.world_width;
+                    // Calculate vector from cell to target
+                    let mut dx = target.x - cell.x;
+                    let mut dy = target.y - cell.y;
+
+                    // Handle world wrapping for line drawing
+                    if dx.abs() > world_width / 2.0 {
+                        dx = dx - dx.signum() * world_width;
+                    }
+                    if dy.abs() > world_height / 2.0 {
+                        dy = dy - dy.signum() * world_height;
+                    }
+
+                    // Calculate target position accounting for wrapping
+                    let target_x = cell.x + dx;
+                    let target_y = cell.y + dy;
+
+                    // Calculate angle to target
+                    let angle_to_target = dy.atan2(dx);
+
+                    // Normalize angles to -PI to PI range
+                    let mut angle_diff = angle_to_target - cell.angle;
+                    while angle_diff > std::f32::consts::PI {
+                        angle_diff -= std::f32::consts::TAU;
+                    }
+                    while angle_diff < -std::f32::consts::PI {
+                        angle_diff += std::f32::consts::TAU;
+                    }
+
+                    // Calculate opacity based on how much the target is in front
+                    // 0 degrees (directly in front) = full opacity
+                    // ±180 degrees (directly behind) = no opacity
+                    let normalized_angle = angle_diff.abs() / std::f32::consts::PI; // 0.0 to 1.0
+                    let opacity = (1.0 - normalized_angle).max(0.0);
+
+                    // Convert to screen coordinates using adjusted camera
+                    let x1 = cell.x - adjusted_camera_x;
+                    let y1 = cell.y - adjusted_camera_y;
+                    let x2 = target_x - adjusted_camera_x;
+                    let y2 = target_y - adjusted_camera_y;
+
+                    // Create color with opacity (use cell's color)
+                    let line_color = Color::new(
+                        cell.color.r,
+                        cell.color.g,
+                        cell.color.b,
+                        opacity * 0.3, // Scale down opacity for subtlety
+                    );
+
+                    // Draw line
+                    draw_line(x1, y1, x2, y2, 1.0, line_color);
                 }
-                if dy.abs() > self.config.world_height / 2.0 {
-                    dy = dy - dy.signum() * self.config.world_height;
-                }
-
-                // Calculate target position accounting for wrapping
-                let target_x = cell.x + dx;
-                let target_y = cell.y + dy;
-
-                // Calculate angle to target
-                let angle_to_target = dy.atan2(dx);
-
-                // Normalize angles to -PI to PI range
-                let mut angle_diff = angle_to_target - cell.angle;
-                while angle_diff > std::f32::consts::PI {
-                    angle_diff -= std::f32::consts::TAU;
-                }
-                while angle_diff < -std::f32::consts::PI {
-                    angle_diff += std::f32::consts::TAU;
-                }
-
-                // Calculate opacity based on how much the target is in front
-                // 0 degrees (directly in front) = full opacity
-                // ±180 degrees (directly behind) = no opacity
-                let normalized_angle = angle_diff.abs() / std::f32::consts::PI; // 0.0 to 1.0
-                let opacity = (1.0 - normalized_angle).max(0.0);
-
-                // Convert to screen coordinates
-                let x1 = cell.x - self.camera.x;
-                let y1 = cell.y - self.camera.y;
-                let x2 = target_x - self.camera.x;
-                let y2 = target_y - self.camera.y;
-
-                // Create color with opacity (use cell's color)
-                let line_color = Color::new(
-                    cell.color.r,
-                    cell.color.g,
-                    cell.color.b,
-                    opacity * 0.3, // Scale down opacity for subtlety
-                );
-
-                // Draw line
-                draw_line(x1, y1, x2, y2, 1.0, line_color);
             }
         }
     }
