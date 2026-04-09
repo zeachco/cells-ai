@@ -953,6 +953,62 @@ impl World {
                             4.0,                  // Thickness
                             gold,
                         );
+
+                        // Draw target line if cell has a target
+                        if let Some((target_x, target_y)) = cell.current_target_pos {
+                            // Calculate nose position (front of the cell)
+                            let nose_x = screen_x + cell.angle.cos() * current_radius;
+                            let nose_y = screen_y + cell.angle.sin() * current_radius;
+
+                            // Calculate target position accounting for world wrapping
+                            let mut target_dx = target_x - cell.x;
+                            let mut target_dy = target_y - cell.y;
+
+                            // Adjust for world wrapping
+                            if target_dx.abs() > world_width / 2.0 {
+                                target_dx = target_dx - target_dx.signum() * world_width;
+                            }
+                            if target_dy.abs() > world_height / 2.0 {
+                                target_dy = target_dy - target_dy.signum() * world_height;
+                            }
+
+                            let target_screen_x = screen_x + target_dx;
+                            let target_screen_y = screen_y + target_dy;
+
+                            // Calculate line color based on current_alignment_score
+                            // Score ranges from 1.0 (0° diff, perfect) to -1.0 (180° diff, opposite)
+                            // Color mapping:
+                            //   1.0 (0° diff) = White (perfectly aligned)
+                            //   0.0 (90° diff) = Yellow (perpendicular)
+                            //   -1.0 (180° diff) = Red (facing away)
+                            let alignment = cell.current_alignment_score.clamp(-1.0, 1.0);
+
+                            let line_color = if alignment >= 0.0 {
+                                // 0° to 90°: interpolate from white (1.0) to yellow (0.0)
+                                // alignment = 1.0: white (1,1,1)
+                                // alignment = 0.0: yellow (1,1,0)
+                                Color::new(1.0, 1.0, alignment, 0.9)
+                            } else {
+                                // 90° to 180°: interpolate from yellow (0.0) to red (-1.0)
+                                // alignment = 0.0: yellow (1,1,0)
+                                // alignment = -1.0: red (1,0,0)
+                                let t = -alignment; // 0.0 to 1.0
+                                Color::new(1.0, 1.0 - t, 0.0, 0.9)
+                            };
+
+                            // Draw line from nose to target
+                            draw_line(
+                                nose_x,
+                                nose_y,
+                                target_screen_x,
+                                target_screen_y,
+                                3.0,
+                                line_color,
+                            );
+
+                            // Draw small circle at target position
+                            draw_circle(target_screen_x, target_screen_y, 5.0, line_color);
+                        }
                     }
                 }
             }

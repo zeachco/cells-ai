@@ -45,7 +45,9 @@ pub struct Cell {
     pub generation: usize,             // Generation count (0 for initial, 1+ for descendants)
     pub ticks_since_last_fed: f32,     // Drives hunger multiplier on metabolism
     pub tracking_score: f32,           // Accumulated reward for turning toward corpses
-    pub prev_corpse_angle: Option<f32>, // Angle to nearest corpse last tick (radians from front)
+    pub prev_target_angle: Option<f32>, // Previous angle to target (for tracking improvement)
+    pub current_target_pos: Option<(f32, f32)>, // Current target position for debugging visualization
+    pub current_alignment_score: f32, // Current alignment score: 1.0 at 0°, 0.0 at 90°, -1.0 at 180°
 
     // ===== Sensors =====
     // Each sensor returns: (cell_index, angle_from_front, distance, mass, is_alive, energy)
@@ -198,7 +200,9 @@ impl Cell {
             generation: loaded_generation, // Use loaded generation from saved brain
             ticks_since_last_fed: 0.0,
             tracking_score: 0.0,
-            prev_corpse_angle: None,
+            prev_target_angle: None,
+            current_target_pos: None,
+            current_alignment_score: 0.0,
 
             // Sensors
             nearest_cells: Vec::new(),
@@ -258,7 +262,9 @@ impl Cell {
             generation: self.generation + 1, // Increment generation
             ticks_since_last_fed: 0.0,
             tracking_score: 0.0,
-            prev_corpse_angle: None,
+            prev_target_angle: None,
+            current_target_pos: None,
+            current_alignment_score: 0.0,
 
             // Sensors
             nearest_cells: Vec::new(),
@@ -382,7 +388,7 @@ impl Cell {
             // Extreme quadratic penalty beyond ±90°.
 
             // Try to find a corpse first (highest mass corpse)
-            let corpse_angle = self
+            let corpse_data = self
                 .nearest_cells
                 .iter()
                 .filter(|&&(_, _, _, _, is_alive, _)| is_alive == 0.0)
@@ -391,10 +397,10 @@ impl Cell {
                         .partial_cmp(&mass_b)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .map(|&(_, angle, _, _, _, _)| angle);
+                .map(|&(_, angle, distance, _, _, _)| (angle, distance));
 
             // If no corpse, find a weaker live cell (lowest energy alive cell with energy < self.energy)
-            let weak_prey_angle = if corpse_angle.is_none() {
+            let weak_prey_data = if corpse_data.is_none() {
                 self.nearest_cells
                     .iter()
                     .filter(|&&(_, _, _, _, is_alive, energy)| {
@@ -405,15 +411,15 @@ impl Cell {
                             .partial_cmp(&energy_b)
                             .unwrap_or(std::cmp::Ordering::Equal)
                     })
-                    .map(|&(_, angle, _, _, _, _)| angle)
+                    .map(|&(_, angle, distance, _, _, _)| (angle, distance))
             } else {
                 None
             };
 
             // Use corpse if available, otherwise use weak prey
-            let target_angle = corpse_angle.or(weak_prey_angle);
+            let target_data = corpse_data.or(weak_prey_data);
 
-            if let Some(curr_angle) = target_angle {
+            if let Some((curr_angle, distance)) = target_data {
                 let half_turn = std::f32::consts::FRAC_PI_2;
                 let abs_diff = curr_angle.abs();
 
@@ -453,8 +459,32 @@ impl Cell {
                     + turn_direction_reward
                     + excessive_turn_penalty
                     + inaction_penalty;
+
+                // Calculate current alignment score for visualization
+                // Based solely on current angle difference:
+                // 0° difference: +1.0 (perfectly aligned, white)
+                // 90° difference: 0.0 (perpendicular, yellow)
+                // 180° difference: -1.0 (opposite direction, red)
+                let abs_angle = curr_angle.abs();
+                self.current_alignment_score = 1.0 - (abs_angle / std::f32::consts::FRAC_PI_2);
+
+                // Calculate target position for visualization (only if within 500 units)
+                if distance <= 500.0 {
+                    let target_world_angle = self.angle + curr_angle;
+                    let target_x = self.x + target_world_angle.cos() * distance;
+                    let target_y = self.y + target_world_angle.sin() * distance;
+                    self.current_target_pos = Some((target_x, target_y));
+                } else {
+                    self.current_target_pos = None;
+                }
+
+                // Store current angle for next frame comparison
+                self.prev_target_angle = Some(curr_angle);
+            } else {
+                self.current_alignment_score = 0.0;
+                self.current_target_pos = None;
+                self.prev_target_angle = None;
             }
-            self.prev_corpse_angle = target_angle;
         } else if self.state == CellState::Corpse {
             // Corpse decay: lose energy per tick
             self.energy -= CORPSE_DECAY_RATE;
