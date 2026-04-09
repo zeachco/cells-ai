@@ -148,7 +148,7 @@ impl Cell {
         world_height: f32,
         cached_brain: &Option<(NeuralNetwork, usize)>,
     ) -> Self {
-        let speed = rand::gen_range(1.0, 3.0);
+        let speed = rand::gen_range(0.2, 1.0);
         let angle = rand::gen_range(0.0, std::f32::consts::TAU);
         // Energy chunk size: 50 ± 10% = 45 to 55
         let energy_chunk_size = rand::gen_range(45.0, 55.0);
