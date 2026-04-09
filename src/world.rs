@@ -174,16 +174,20 @@ impl World {
         {
             let best_cell = &self.cells[best_idx];
             if best_cell.state == CellState::Corpse {
-                crate::storage::save_best_neural_network(
-                    &best_cell.brain,
-                    best_cell.generation,
-                    best_cell.score(),
-                    best_cell.children_count,
-                    best_cell.energy_from_cells,
-                    best_cell.age,
-                );
-                // Update cache with the saved brain
-                self.cached_best_brain = Some((best_cell.brain.clone(), best_cell.generation));
+                let score = best_cell.score();
+                // Only save if score is positive
+                if score > 0.0 {
+                    crate::storage::save_best_neural_network(
+                        &best_cell.brain,
+                        best_cell.generation,
+                        score,
+                        best_cell.children_count,
+                        best_cell.energy_from_cells,
+                        best_cell.age,
+                    );
+                    // Update cache with the saved brain
+                    self.cached_best_brain = Some((best_cell.brain.clone(), best_cell.generation));
+                }
             }
         }
 
@@ -389,16 +393,20 @@ impl World {
 
                 // Save neural network if this is the best cell reproducing
                 if Some(idx) == best_cell_idx {
-                    crate::storage::save_best_neural_network(
-                        &cell.brain,
-                        cell.generation,
-                        cell.score(),
-                        cell.children_count,
-                        cell.energy_from_cells,
-                        cell.age,
-                    );
-                    // Update cache with the newly saved brain
-                    self.cached_best_brain = Some((cell.brain.clone(), cell.generation));
+                    let score = cell.score();
+                    // Only save if score is positive
+                    if score > 0.0 {
+                        crate::storage::save_best_neural_network(
+                            &cell.brain,
+                            cell.generation,
+                            score,
+                            cell.children_count,
+                            cell.energy_from_cells,
+                            cell.age,
+                        );
+                        // Update cache with the newly saved brain
+                        self.cached_best_brain = Some((cell.brain.clone(), cell.generation));
+                    }
                 }
             }
         }
@@ -433,7 +441,7 @@ impl World {
             let nearby_indices = self.spatial_grid.query_nearby(cell.x, cell.y, SENSOR_RANGE);
 
             // Calculate distances and angles to all nearby cells
-            let mut sensor_data: Vec<(usize, f32, f32, f32, f32)> = nearby_indices
+            let mut sensor_data: Vec<(usize, f32, f32, f32, f32, f32)> = nearby_indices
                 .iter()
                 .filter_map(|&j| {
                     if i == j {
@@ -445,7 +453,7 @@ impl World {
                         return None;
                     }
 
-                    let (x2, y2, _energy, mass, is_alive) = cell_data[j];
+                    let (x2, y2, energy, mass, is_alive) = cell_data[j];
 
                     // Handle wrapping distance calculation
                     let mut dx = x2 - cell.x;
@@ -480,8 +488,8 @@ impl World {
                         angle_from_front += std::f32::consts::TAU;
                     }
 
-                    // Return (index, angle_from_front, distance, mass, is_alive)
-                    Some((j, angle_from_front, distance, mass, is_alive))
+                    // Return (index, angle_from_front, distance, mass, is_alive, energy)
+                    Some((j, angle_from_front, distance, mass, is_alive, energy))
                 })
                 .collect();
 
@@ -493,8 +501,8 @@ impl World {
                 sensor_data.select_nth_unstable_by(SENSOR_COUNT - 1, |a, b| {
                     let is_alive_a = a.4; // 1.0 if alive, 0.0 if dead
                     let is_alive_b = b.4;
-                    let energy_a = cell_data.get(a.0).map(|d| d.2).unwrap_or(0.0);
-                    let energy_b = cell_data.get(b.0).map(|d| d.2).unwrap_or(0.0);
+                    let energy_a = a.5; // Energy is now at position 5
+                    let energy_b = b.5;
 
                     // Sort by alive status ascending (0.0 before 1.0, so dead before alive)
                     // Then by energy descending, then by distance ascending
@@ -800,7 +808,9 @@ impl World {
                     continue; // Skip if cell not visible at this wraparound position
                 }
 
-                for &(target_idx, _angle, _distance, _mass, _is_alive) in &cell.nearest_cells {
+                for &(target_idx, _angle, _distance, _mass, _is_alive, _energy) in
+                    &cell.nearest_cells
+                {
                     // Safety check: ensure target index is valid
                     if target_idx >= self.cells.len() {
                         continue;

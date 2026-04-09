@@ -48,12 +48,13 @@ pub struct Cell {
     pub prev_corpse_angle: Option<f32>, // Angle to nearest corpse last tick (radians from front)
 
     // ===== Sensors =====
-    // Each sensor returns: (cell_index, angle_from_front, distance, mass, is_alive)
+    // Each sensor returns: (cell_index, angle_from_front, distance, mass, is_alive, energy)
     // angle_from_front: -180..180 degrees relative to cell's facing direction
     // distance: 0..200 units
     // mass: target cell's mass (energy capacity)
     // is_alive: 1.0 if alive, 0.0 if dead/corpse
-    pub nearest_cells: Vec<(usize, f32, f32, f32, f32)>, // (index, angle, distance, mass, is_alive) for 5 nearest cells
+    // energy: target cell's current energy
+    pub nearest_cells: Vec<(usize, f32, f32, f32, f32, f32)>, // (index, angle, distance, mass, is_alive, energy) for 5 nearest cells
 
     // ===== Neural Network Brain =====
     pub brain: NeuralNetwork,
@@ -289,7 +290,7 @@ impl Cell {
 
         for i in 0..5 {
             if i < self.nearest_cells.len() {
-                let (_index, angle, distance, mass, is_alive) = self.nearest_cells[i];
+                let (_index, angle, distance, mass, is_alive, _energy) = self.nearest_cells[i];
 
                 // Angle: -PI..PI -> -1..1
                 let normalized_angle = angle / std::f32::consts::PI;
@@ -374,21 +375,45 @@ impl Cell {
             // Use neural network to decide action instead of random movement
             self.decide_action();
 
-            // Reward alignment toward the nearest corpse each tick.
+            // Reward alignment toward targets each tick.
+            // Priority: dead cells (corpses) first, then weaker live cells if no corpses.
             // angle_from_front is already atan2(target)-cell_angle wrapped to -PI..PI.
             // Logarithmic reward within ±90°: precision near 0° is worth more.
             // Extreme quadratic penalty beyond ±90°.
+
+            // Try to find a corpse first (highest mass corpse)
             let corpse_angle = self
                 .nearest_cells
                 .iter()
-                .filter(|&&(_, _, _, _, is_alive)| is_alive == 0.0)
-                .max_by(|&&(_, _, _, mass_a, _), &&(_, _, _, mass_b, _)| {
+                .filter(|&&(_, _, _, _, is_alive, _)| is_alive == 0.0)
+                .max_by(|&&(_, _, _, mass_a, _, _), &&(_, _, _, mass_b, _, _)| {
                     mass_a
                         .partial_cmp(&mass_b)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .map(|&(_, angle, _, _, _)| angle);
-            if let Some(curr_angle) = corpse_angle {
+                .map(|&(_, angle, _, _, _, _)| angle);
+
+            // If no corpse, find a weaker live cell (lowest energy alive cell with energy < self.energy)
+            let weak_prey_angle = if corpse_angle.is_none() {
+                self.nearest_cells
+                    .iter()
+                    .filter(|&&(_, _, _, _, is_alive, energy)| {
+                        is_alive == 1.0 && energy < self.energy
+                    })
+                    .min_by(|&&(_, _, _, _, _, energy_a), &&(_, _, _, _, _, energy_b)| {
+                        energy_a
+                            .partial_cmp(&energy_b)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|&(_, angle, _, _, _, _)| angle)
+            } else {
+                None
+            };
+
+            // Use corpse if available, otherwise use weak prey
+            let target_angle = corpse_angle.or(weak_prey_angle);
+
+            if let Some(curr_angle) = target_angle {
                 let half_turn = std::f32::consts::FRAC_PI_2;
                 let abs_diff = curr_angle.abs();
 
@@ -405,8 +430,8 @@ impl Cell {
                 };
 
                 // Turning direction reward: penalize turning away from target, reward turning toward it.
-                // When corpse is to the right (curr_angle > 0), turning right (angle_velocity > 0) is good.
-                // When corpse is to the left (curr_angle < 0), turning left (angle_velocity < 0) is good.
+                // When target is to the right (curr_angle > 0), turning right (angle_velocity > 0) is good.
+                // When target is to the left (curr_angle < 0), turning left (angle_velocity < 0) is good.
                 // The product curr_angle * angle_velocity is positive when turning correctly,
                 // negative when turning the wrong way. Scale by 10 to make it significant.
                 let turn_direction_reward = curr_angle * self.angle_velocity * 10.0;
@@ -429,7 +454,7 @@ impl Cell {
                     + excessive_turn_penalty
                     + inaction_penalty;
             }
-            self.prev_corpse_angle = corpse_angle;
+            self.prev_corpse_angle = target_angle;
         } else if self.state == CellState::Corpse {
             // Corpse decay: lose energy per tick
             self.energy -= CORPSE_DECAY_RATE;
@@ -523,8 +548,8 @@ impl Cell {
         let nearest_corpse = self
             .nearest_cells
             .iter()
-            .filter(|&&(_, _, _, _, is_alive)| is_alive == 0.0)
-            .min_by(|&&(_, _, dist_a, _, _), &&(_, _, dist_b, _, _)| {
+            .filter(|&&(_, _, _, _, is_alive, _)| is_alive == 0.0)
+            .min_by(|&&(_, _, dist_a, _, _, _), &&(_, _, dist_b, _, _, _)| {
                 dist_a
                     .partial_cmp(&dist_b)
                     .unwrap_or(std::cmp::Ordering::Equal)
@@ -533,7 +558,7 @@ impl Cell {
         // Calculate blob deformation parameters
         let deformation_threshold = current_radius * 4.0; // Start deforming at 4x radius distance
         let (should_deform, corpse_angle, deform_strength) =
-            if let Some(&(_, angle, distance, _, _)) = nearest_corpse {
+            if let Some(&(_, angle, distance, _, _, _)) = nearest_corpse {
                 if self.state == CellState::Alive && distance < deformation_threshold {
                     let strength = (1.0 - (distance / deformation_threshold)).max(0.0);
                     (true, angle, strength)
