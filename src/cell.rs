@@ -3,20 +3,15 @@ use macroquad::prelude::*;
 
 // Cell behavior constants
 const CONSTANT_FORWARD_FORCE: f32 = 0.1;
-const BOOST_ENERGY_MULTIPLIER: f32 = 1.5;
 const METABOLISM_ENERGY_LOSS: f32 = 0.03;
 const CORPSE_DECAY_RATE: f32 = 0.02;
-const TURN_ENERGY_COST: f32 = 0.05;
-const FORWARD_ENERGY_COST: f32 = 0.1;
 // Hunger: metabolism multiplier grows the longer a cell goes without eating.
 // Ramps from 1x up to HUNGER_MAX_MULTIPLIER over HUNGER_RAMP_TICKS ticks.
 const HUNGER_RAMP_TICKS: f32 = 300.0;
 const HUNGER_MAX_MULTIPLIER: f32 = 4.0;
 const GROWTH_AGE_THRESHOLD: f32 = 20.0;
 const ADULT_AGE_THRESHOLD: f32 = 30.0;
-const MAX_AGE_FOR_COST: f32 = 100.0;
 const MIN_RADIUS_PERCENT: f32 = 0.1;
-const MAX_AGE_COST_MULTIPLIER: f32 = 2.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CellState {
@@ -35,8 +30,7 @@ pub struct Cell {
     pub angle: f32,
     pub angle_velocity: f32,
     pub state: CellState,
-    pub age: f32,        // 0 to 100+, affects energy costs and size
-    boost_cooldown: f32, // used to allow or punish cells for bosting too often
+    pub age: f32, // 0 to 100+, affects energy costs and size
 
     // ===== Stats Tracking =====
     pub total_energy_accumulated: f32, // Total energy gained throughout lifetime
@@ -48,6 +42,7 @@ pub struct Cell {
     pub prev_target_angle: Option<f32>, // Previous angle to target (for tracking improvement)
     pub current_target_pos: Option<(f32, f32)>, // Current target position for debugging visualization
     pub current_alignment_score: f32, // Current alignment score: 1.0 at 0°, 0.0 at 90°, -1.0 at 180°
+    pub last_action: Option<u8>, // Last action taken: 0=noop, 1=turn_left, 2=turn_right, 3=forward
 
     // ===== Sensors =====
     // Each sensor returns: (cell_index, angle_from_front, distance, mass, is_alive, energy)
@@ -148,12 +143,6 @@ impl Cell {
         }
     }
 
-    // Get age-based energy cost multiplier
-    // Age 0-MAX_AGE_FOR_COST: costs scale from 1.0x to MAX_AGE_COST_MULTIPLIER
-    fn get_age_cost_multiplier(&self) -> f32 {
-        1.0 + (self.age / MAX_AGE_FOR_COST).min(1.0) * (MAX_AGE_COST_MULTIPLIER - 1.0)
-    }
-
     pub fn spawn(
         world_width: f32,
         world_height: f32,
@@ -191,7 +180,6 @@ impl Cell {
             angle_velocity: rand::gen_range(-0.05, 0.05),
             state: CellState::Alive,
             age: 0.0,
-            boost_cooldown: 0.0,
 
             // Stats Tracking
             total_energy_accumulated: 100.0, // Start with initial energy
@@ -203,6 +191,7 @@ impl Cell {
             prev_target_angle: None,
             current_target_pos: None,
             current_alignment_score: 0.0,
+            last_action: None,
 
             // Sensors
             nearest_cells: Vec::new(),
@@ -228,7 +217,7 @@ impl Cell {
         let offset = 15.0;
 
         // Apply mutation to inherited attributes with their respective ranges
-        let mutated_speed = Self::mutate(self.speed, 1.0, 3.0);
+        let mutated_speed = Self::mutate(self.speed, 0.2, 1.0);
 
         // Mutate color by adjusting hue angle (±1%)
         let (h, s, v) = Self::rgb_to_hsv(self.color);
@@ -253,7 +242,6 @@ impl Cell {
             angle_velocity: rand::gen_range(-0.05, 0.05),
             state: CellState::Alive,
             age: 0.0, // Start as newborn
-            boost_cooldown: 0.0,
 
             // Stats Tracking
             total_energy_accumulated: 0.0, // Start fresh
@@ -265,6 +253,7 @@ impl Cell {
             prev_target_angle: None,
             current_target_pos: None,
             current_alignment_score: 0.0,
+            last_action: None,
 
             // Sensors
             nearest_cells: Vec::new(),
@@ -340,6 +329,9 @@ impl Cell {
     fn decide_action(&mut self) {
         let inputs = self.normalize_sensors();
         let action = self.brain.get_best_action(&inputs);
+
+        // Store the action taken for reward calculation
+        self.last_action = Some(action as u8);
 
         match action {
             0 => {} // No-op (do nothing)
@@ -420,52 +412,56 @@ impl Cell {
             let target_data = corpse_data.or(weak_prey_data);
 
             if let Some((curr_angle, distance)) = target_data {
-                let half_turn = std::f32::consts::FRAC_PI_2;
-                let abs_diff = curr_angle.abs();
+                let abs_angle = curr_angle.abs();
 
-                // Alignment reward: logarithmic within ±90°, extreme penalty beyond
-                let alignment_reward = if abs_diff < half_turn {
-                    // Logarithmic: approaches 1 near 0°, reaches 0 at 90°
-                    let k = 10.0_f32;
-                    let alignment = 1.0 - abs_diff / half_turn;
-                    (1.0 + k * alignment).ln() / (1.0 + k).ln()
+                // Calculate if alignment improved since last frame
+                let alignment_improved = if let Some(prev_angle) = self.prev_target_angle {
+                    prev_angle.abs() - abs_angle // Positive = better, negative = worse
                 } else {
-                    // Extreme quadratic penalty: 0 at 90°, -3 at 180°
-                    let beyond = (abs_diff - half_turn) / half_turn;
-                    -3.0 * beyond * beyond
+                    0.0 // First frame, no comparison
                 };
 
-                // Turning direction reward: penalize turning away from target, reward turning toward it.
-                // When target is to the right (curr_angle > 0), turning right (angle_velocity > 0) is good.
-                // When target is to the left (curr_angle < 0), turning left (angle_velocity < 0) is good.
-                // The product curr_angle * angle_velocity is positive when turning correctly,
-                // negative when turning the wrong way. Scale by 10 to make it significant.
-                let turn_direction_reward = curr_angle * self.angle_velocity * 10.0;
+                // Check if a turn action was taken this frame
+                let turn_action_taken = matches!(self.last_action, Some(1) | Some(2));
+                // Check if forward action was taken
+                let forward_action_taken = matches!(self.last_action, Some(3));
 
-                // Penalize excessive turning (spinning too fast)
-                // Quadratic penalty starts kicking in when abs(angle_velocity) > 0.1
+                // Action-based reward logic
+                if turn_action_taken {
+                    if alignment_improved > 0.0 {
+                        // Reward for successful turning that improved alignment
+                        // Scale reward by how much improvement was made
+                        self.tracking_score += alignment_improved * 100.0;
+                    }
+                    // No penalty for trying - encourages exploration
+                } else if forward_action_taken {
+                    // Reward forward movement when aligned with target (within ±90°)
+                    let half_turn = std::f32::consts::FRAC_PI_2;
+                    if abs_angle < half_turn {
+                        // Scale reward by alignment quality: 0° = max reward, 90° = 0 reward
+                        // Linear scaling: (1 - angle/90°) gives 1.0 at 0°, 0.0 at 90°
+                        let alignment_factor = 1.0 - (abs_angle / half_turn);
+                        self.tracking_score += alignment_factor * 50.0;
+                    }
+                    // No penalty for forward when not aligned - just no reward
+                } else {
+                    if alignment_improved < 0.0 {
+                        // Penalty for passive drift away from target
+                        self.tracking_score += alignment_improved * 50.0; // Negative value
+                    }
+                    // No reward for passive good alignment - prevents infinite accumulation
+                }
+
+                // Keep existing excessive turning penalty
                 let excessive_turn_penalty =
                     -(self.angle_velocity.abs().max(0.1) - 0.1).powi(2) * 50.0;
-
-                // Penalize inaction when misaligned (not turning when you should)
-                // If abs(curr_angle) > threshold and angle_velocity is near zero, apply penalty
-                let inaction_penalty = if abs_diff > 0.2 && self.angle_velocity.abs() < 0.01 {
-                    -abs_diff * 2.0 // Penalty scales with how misaligned we are
-                } else {
-                    0.0
-                };
-
-                self.tracking_score += alignment_reward
-                    + turn_direction_reward
-                    + excessive_turn_penalty
-                    + inaction_penalty;
+                self.tracking_score += excessive_turn_penalty;
 
                 // Calculate current alignment score for visualization
                 // Based solely on current angle difference:
                 // 0° difference: +1.0 (perfectly aligned, white)
                 // 90° difference: 0.0 (perpendicular, yellow)
                 // 180° difference: -1.0 (opposite direction, red)
-                let abs_angle = curr_angle.abs();
                 self.current_alignment_score = 1.0 - (abs_angle / std::f32::consts::FRAC_PI_2);
 
                 // Calculate target position for visualization (only if within 500 units)
@@ -680,37 +676,18 @@ impl Cell {
     }
 
     pub fn turn_left(&mut self) {
-        let age_multiplier = self.get_age_cost_multiplier();
-        let cost = TURN_ENERGY_COST * age_multiplier;
-        if self.energy >= cost {
-            self.angle_velocity -= self.turn_rate;
-            self.energy -= cost;
-        }
+        // No energy cost - turning is now rewarded via tracking_score
+        self.angle_velocity -= self.turn_rate;
     }
 
     pub fn turn_right(&mut self) {
-        let age_multiplier = self.get_age_cost_multiplier();
-        let cost = TURN_ENERGY_COST * age_multiplier;
-        if self.energy >= cost {
-            self.angle_velocity += self.turn_rate;
-            self.energy -= cost;
-        }
+        // No energy cost - turning is now rewarded via tracking_score
+        self.angle_velocity += self.turn_rate;
     }
 
     pub fn forward(&mut self) {
-        if self.boost_cooldown >= 0.0 {
-            self.energy -= 1.0;
-            return;
-        }
-        let age_multiplier = self.get_age_cost_multiplier();
-        let cost = FORWARD_ENERGY_COST * BOOST_ENERGY_MULTIPLIER * age_multiplier;
-        if self.energy >= cost {
-            self.boost_cooldown = 1000.0;
-            self.velocity_x += self.angle.cos() * self.speed;
-            self.velocity_y += self.angle.sin() * self.speed;
-            self.energy -= cost;
-        } else {
-            self.boost_cooldown -= 1.0;
-        }
+        // No energy cost or cooldown - forward movement is now rewarded via tracking_score
+        self.velocity_x += self.angle.cos() * self.speed;
+        self.velocity_y += self.angle.sin() * self.speed;
     }
 }

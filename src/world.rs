@@ -56,6 +56,8 @@ pub struct World {
     config: SimulationConfig,
     // Cached best neural network (brain, generation) - loaded once from storage
     cached_best_brain: Option<(crate::neural_network::NeuralNetwork, usize)>,
+    // Best saved score (to avoid saving worse models)
+    best_saved_score: f32,
     // Custom font for rendering
     font: Option<Font>,
 }
@@ -65,7 +67,14 @@ impl World {
         let config = get_config();
 
         // Load best brain once from storage and cache it
-        let cached_best_brain = crate::storage::load_best_neural_network();
+        let loaded_data = crate::storage::load_best_neural_network();
+        let cached_best_brain = loaded_data
+            .as_ref()
+            .map(|(brain, generation, _score)| (brain.clone(), *generation));
+        let best_saved_score = loaded_data
+            .as_ref()
+            .map(|(_, _, score)| *score)
+            .unwrap_or(0.0);
 
         let mut cells = Vec::new();
         for i in 0..config.initial_cell_count {
@@ -96,6 +105,7 @@ impl World {
             color_diversity: 0.0,
             config,
             cached_best_brain,
+            best_saved_score,
             font,
         }
     }
@@ -168,15 +178,15 @@ impl World {
             cell.update(world_width, world_height);
         });
 
-        // Save best cell's brain if it just died
+        // Save best cell's brain if it just died and score improved
         if let Some(best_idx) = self.last_best_cell_index
             && best_idx < self.cells.len()
         {
             let best_cell = &self.cells[best_idx];
             if best_cell.state == CellState::Corpse {
                 let score = best_cell.score();
-                // Only save if score is positive
-                if score > 0.0 {
+                // Only save if score is positive and better than previous best
+                if score > self.best_saved_score {
                     crate::storage::save_best_neural_network(
                         &best_cell.brain,
                         best_cell.generation,
@@ -185,8 +195,10 @@ impl World {
                         best_cell.energy_from_cells,
                         best_cell.age,
                     );
-                    // Update cache with the saved brain
+                    // Update cache and best score
                     self.cached_best_brain = Some((best_cell.brain.clone(), best_cell.generation));
+                    self.best_saved_score = score;
+                    println!("📈 New high score: {:.1}", score);
                 }
             }
         }
@@ -391,11 +403,12 @@ impl World {
                 cell.energy = parent_energy;
                 cell.children_count += 1;
 
-                // Save neural network if this is the best cell reproducing
+                // Save neural network if this is the best cell reproducing AND score improved
                 if Some(idx) == best_cell_idx {
                     let score = cell.score();
-                    // Only save if score is positive
-                    if score > 0.0 {
+                    // Only save if score is better than previous best
+                    if score > self.best_saved_score {
+                        let prev_score = self.best_saved_score;
                         crate::storage::save_best_neural_network(
                             &cell.brain,
                             cell.generation,
@@ -404,8 +417,13 @@ impl World {
                             cell.energy_from_cells,
                             cell.age,
                         );
-                        // Update cache with the newly saved brain
+                        // Update cache and best score
                         self.cached_best_brain = Some((cell.brain.clone(), cell.generation));
+                        self.best_saved_score = score;
+                        println!(
+                            "📈 New high score: {:.1} (previous: {:.1})",
+                            score, prev_score
+                        );
                     }
                 }
             }
@@ -601,15 +619,15 @@ impl World {
             true
         };
 
-        if let Some(index) = best_cell_index {
-            let best_cell = &self.cells[index];
+        if let Some(best_index) = best_cell_index {
+            let best_cell = &self.cells[best_index];
 
             // Only update to new best cell if we should switch targets
             if should_switch_target {
                 // Only clone the best cell's genome if it changed (avoid expensive clone every frame)
-                if self.last_best_cell_index != Some(index) {
+                if self.last_best_cell_index != Some(best_index) {
                     self.best_cell_genome = Some(best_cell.clone());
-                    self.last_best_cell_index = Some(index);
+                    self.last_best_cell_index = Some(best_index);
                     self.followed_cell_death_time = None; // Reset death timer for new target
                 }
 
@@ -628,7 +646,7 @@ impl World {
 
                 // Update selected cell index if stats are selected
                 if self.stats.is_selected() {
-                    self.selected_cell_index = Some(index);
+                    self.selected_cell_index = Some(best_index);
                 } else {
                     self.selected_cell_index = None;
                 }
