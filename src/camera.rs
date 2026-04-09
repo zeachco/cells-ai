@@ -32,7 +32,7 @@ impl Camera {
             target_angle: 0.0,
             move_speed: 2000.0,
             rotation_speed: 2.0,
-            lerp_factor: 0.05,
+            lerp_factor: 0.1,
             is_dragging: false,
             last_mouse_x: 0.0,
             last_mouse_y: 0.0,

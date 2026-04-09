@@ -35,7 +35,8 @@ pub struct Cell {
     pub angle: f32,
     pub angle_velocity: f32,
     pub state: CellState,
-    pub age: f32, // 0 to 100+, affects energy costs and size
+    pub age: f32,        // 0 to 100+, affects energy costs and size
+    boost_cooldown: f32, // used to allow or punish cells for bosting too often
 
     // ===== Stats Tracking =====
     pub total_energy_accumulated: f32, // Total energy gained throughout lifetime
@@ -187,6 +188,7 @@ impl Cell {
             angle_velocity: rand::gen_range(-0.05, 0.05),
             state: CellState::Alive,
             age: 0.0,
+            boost_cooldown: 0.0,
 
             // Stats Tracking
             total_energy_accumulated: 100.0, // Start with initial energy
@@ -246,6 +248,7 @@ impl Cell {
             angle_velocity: rand::gen_range(-0.05, 0.05),
             state: CellState::Alive,
             age: 0.0, // Start as newborn
+            boost_cooldown: 0.0,
 
             // Stats Tracking
             total_energy_accumulated: 0.0, // Start fresh
@@ -353,6 +356,8 @@ impl Cell {
 
         // Cap energy at mass (max capacity)
         if self.energy > self.mass {
+            let diff = self.energy - self.mass;
+            self.tracking_score += diff;
             self.energy = self.mass;
         }
 
@@ -542,12 +547,19 @@ impl Cell {
     }
 
     pub fn forward(&mut self) {
+        if self.boost_cooldown >= 0.0 {
+            self.energy -= 1.0;
+            return;
+        }
         let age_multiplier = self.get_age_cost_multiplier();
         let cost = FORWARD_ENERGY_COST * BOOST_ENERGY_MULTIPLIER * age_multiplier;
         if self.energy >= cost {
+            self.boost_cooldown = 1000.0;
             self.velocity_x += self.angle.cos() * self.speed;
             self.velocity_y += self.angle.sin() * self.speed;
             self.energy -= cost;
+        } else {
+            self.boost_cooldown -= 1.0;
         }
     }
 }
