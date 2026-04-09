@@ -552,7 +552,7 @@ impl Cell {
         children_score + energy_score + age_score + tracking
     }
 
-    pub fn render(&self, camera_x: f32, camera_y: f32, show_glow: bool) {
+    pub fn render(&self, camera_x: f32, camera_y: f32) {
         let screen_x = self.x - camera_x;
         let screen_y = self.y - camera_y;
         let current_radius = self.get_current_radius();
@@ -596,7 +596,7 @@ impl Cell {
             };
 
         // Draw gradient halo effect (only for alive cells and when glow is enabled)
-        if self.state == CellState::Alive && show_glow {
+        if self.state == CellState::Alive {
             let halo_layers = 5;
             for i in 0..halo_layers {
                 let t = (i as f32) / (halo_layers as f32);

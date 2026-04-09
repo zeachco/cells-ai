@@ -31,7 +31,7 @@ impl SimulationConfig {
             world_width: 60000.0,
             world_height: 40000.0,
             initial_cell_count: 5000,
-            show_ui: true,
+            show_ui: false,
             show_sensor_lines: true,
             camera_tracking_speed: 0.5,
         }

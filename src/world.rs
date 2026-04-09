@@ -60,6 +60,8 @@ pub struct World {
     best_saved_score: f32,
     // Custom font for rendering
     font: Option<Font>,
+    // Parallax star-field background
+    background: Option<crate::background::Background>,
 }
 
 impl World {
@@ -107,6 +109,13 @@ impl World {
             cached_best_brain,
             best_saved_score,
             font,
+            background: match crate::background::Background::new() {
+                Ok(bg) => Some(bg),
+                Err(e) => {
+                    eprintln!("Background shader failed to load: {e:?}");
+                    None
+                }
+            },
         }
     }
 
@@ -892,6 +901,11 @@ impl World {
     }
 
     pub fn render(&self) {
+        // Render parallax star-field background
+        if let Some(bg) = &self.background {
+            bg.render(self.camera.x, self.camera.y);
+        }
+
         // Render boundary lines (only if UI enabled)
         if self.config.show_ui {
             self.render_grid();
@@ -948,7 +962,7 @@ impl World {
                 let adjusted_camera_y = self.camera.y - dy;
 
                 // cell.render() has built-in viewport culling, will skip if off-screen
-                cell.render(adjusted_camera_x, adjusted_camera_y, self.config.show_ui);
+                cell.render(adjusted_camera_x, adjusted_camera_y);
 
                 // Draw selection highlight if this is the selected cell
                 if self.selected_cell_index == Some(idx) {
@@ -964,11 +978,19 @@ impl World {
                         || screen_y > screen_h + margin)
                     {
                         let gold = Color::new(1.0, 0.84, 0.0, 1.0);
+                        let gold_transparent = Color::new(1.0, 0.84, 0.0, 0.5);
                         draw_circle_lines(
                             screen_x,
                             screen_y,
-                            current_radius + 3.0, // Slightly larger than cell
+                            current_radius + 9.0, // Slightly larger than cell
                             4.0,                  // Thickness
+                            gold_transparent,
+                        );
+                        draw_circle_lines(
+                            screen_x,
+                            screen_y,
+                            current_radius + 12.0, // Slightly larger than cell
+                            1.0,                   // Thickness
                             gold,
                         );
 
