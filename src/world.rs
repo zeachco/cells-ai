@@ -53,7 +53,8 @@ pub struct World {
     pub paused: bool,
     pub simulation_speed: f32, // 1.0 = normal, 0.5 = half speed, 2.0 = double speed
     pub tick_count: usize,     // Cumulative ticks, resets on sim reset
-    pub reset_count: usize,    // Cumulative ticks, resets on sim reset
+    pub reset_count: usize,    // Cumulative resets
+    pub elapsed_time: f32,     // Elapsed simulation time in seconds, resets on sim reset
     // Diversity tracking
     pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
     pub tier_cell_counts: [usize; 4],
@@ -121,6 +122,7 @@ impl World {
             simulation_speed: 1.0,
             tick_count: 0,
             reset_count: 0,
+            elapsed_time: 0.0,
             color_diversity: 0.0,
             tier_cell_counts: [0; 4],
             tier_diversities: [0.0; 4],
@@ -143,9 +145,10 @@ impl World {
         // Clear current cells
         self.cells.clear();
 
-        // Reset tick counter
+        // Reset tick counter and elapsed time
         self.tick_count = 0;
         self.reset_count += 1;
+        self.elapsed_time = 0.0;
 
         // Spawn count minimum is 100
         let spawn_count = self.max_cells.min(self.config.initial_cell_count).max(100);
@@ -245,8 +248,16 @@ impl World {
             return;
         }
 
-        // Increment tick counter (only when not paused)
+        // Increment tick counter and elapsed time (only when not paused)
         self.tick_count += 1;
+        self.elapsed_time += delta_time;
+
+        // Auto-reset after 10 minutes of elapsed simulation time
+        const AUTO_RESET_TIME: f32 = 600.0; // 10 minutes in seconds
+        if self.elapsed_time >= AUTO_RESET_TIME && self.best_cell_genome.is_some() {
+            println!("Auto-reset triggered after 10 minutes of simulation time");
+            self.respawn_from_best();
+        }
 
         // Note: simulation_speed affects how many updates we process
         // For simplicity, we just run more/fewer frames naturally with FPS changes
@@ -1523,10 +1534,16 @@ impl World {
         let tier_hues = [180.0_f32, 270.0, 0.0, 90.0];
         let total_alive = self.tier_cell_counts.iter().sum::<usize>().max(1);
 
-        for (tier, &tier_hue) in tier_hues.iter().enumerate() {
-            let y_base = padding + font_size + line_height * (5.0 + tier as f32);
+        // Sort tiers by cell count (descending)
+        let mut tier_indices: Vec<usize> = (0..4).collect();
+        tier_indices
+            .sort_unstable_by(|&a, &b| self.tier_cell_counts[b].cmp(&self.tier_cell_counts[a]));
+
+        for (display_idx, &tier) in tier_indices.iter().enumerate() {
+            let tier_hue = tier_hues[tier];
+            let y_base = padding + font_size + line_height * (5.0 + display_idx as f32);
             let count = self.tier_cell_counts[tier];
-            let diversity_pct = self.tier_diversities[tier] * 100.0;
+            let max_score = self.best_saved_scores[tier];
 
             // Tier label color derived from base hue (s=0.8, v=0.9)
             let h = tier_hue;
@@ -1589,8 +1606,8 @@ impl World {
                 );
             }
 
-            // Count + diversity text
-            let info = format!(" {} cells ({:.0}%)", count, diversity_pct);
+            // Count + max score text
+            let info = format!(" {} cells (top score: {:.0})", count, max_score);
             draw_text_ex(
                 &info,
                 bar_x + bar_max_width + 4.0,
