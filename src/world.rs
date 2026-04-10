@@ -52,6 +52,7 @@ pub struct World {
     // Simulation controls
     pub paused: bool,
     pub simulation_speed: f32, // 1.0 = normal, 0.5 = half speed, 2.0 = double speed
+    pub tick_count: usize,     // Cumulative ticks, resets on sim reset
     // Diversity tracking
     pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
     pub tier_cell_counts: [usize; 4],
@@ -117,6 +118,7 @@ impl World {
             followed_cell_death_time: None,
             paused: false,
             simulation_speed: 1.0,
+            tick_count: 0,
             color_diversity: 0.0,
             tier_cell_counts: [0; 4],
             tier_diversities: [0.0; 4],
@@ -138,6 +140,9 @@ impl World {
     pub fn respawn_from_best(&mut self) {
         // Clear current cells
         self.cells.clear();
+
+        // Reset tick counter
+        self.tick_count = 0;
 
         // Spawn new cells equally distributed across all 4 tiers
         let spawn_count = self.max_cells.min(self.config.initial_cell_count);
@@ -182,6 +187,9 @@ impl World {
         if self.paused {
             return;
         }
+
+        // Increment tick counter (only when not paused)
+        self.tick_count += 1;
 
         // Note: simulation_speed affects how many updates we process
         // For simplicity, we just run more/fewer frames naturally with FPS changes
@@ -493,7 +501,10 @@ impl World {
         let density_counts: Vec<usize> = self
             .cells
             .iter()
-            .map(|cell| self.spatial_grid.count_nearby_in_bucket(cell.x, cell.y))
+            .map(|cell| {
+                let count = self.spatial_grid.count_nearby_in_bucket(cell.x, cell.y);
+                count.max(1) // Ensure count is at least 1 to avoid division by zero
+            })
             .collect();
 
         // Capture max_cells for density penalty calculation
@@ -792,6 +803,7 @@ impl World {
                     is_alive: true, // is_alive is guaranteed true since we filtered for it
                     brain_tier: best_cell.brain_tier,
                     brain_operations: best_cell.brain.operation_count(),
+                    cell_index: best_index,
                 });
 
                 // Update selected cell index if stats are selected
@@ -816,6 +828,7 @@ impl World {
                         is_alive: false,
                         brain_tier: dead_cell.brain_tier,
                         brain_operations: dead_cell.brain.operation_count(),
+                        cell_index: last_index,
                     });
                 }
             }
@@ -1433,7 +1446,17 @@ impl World {
             state_color,
         );
 
-        // Lines 5-9: Per-tier population bars + total
+        // Line 5: Cumulative ticks
+        let ticks_text = format!("Ticks: {}", self.tick_count);
+        draw_text(
+            &ticks_text,
+            padding,
+            padding + font_size + line_height * 4.0,
+            font_size,
+            text_color,
+        );
+
+        // Lines 6-10: Per-tier population bars + total
         let bar_max_width = 200.0_f32;
         let bar_height = 14.0_f32;
         // Base hue per tier: 180 + tier * 90 (same as Cell::spawn)
@@ -1441,7 +1464,7 @@ impl World {
         let total_alive = self.tier_cell_counts.iter().sum::<usize>().max(1);
 
         for (tier, &tier_hue) in tier_hues.iter().enumerate() {
-            let y_base = padding + font_size + line_height * (4.0 + tier as f32);
+            let y_base = padding + font_size + line_height * (5.0 + tier as f32);
             let count = self.tier_cell_counts[tier];
             let diversity_pct = self.tier_diversities[tier] * 100.0;
 
@@ -1523,7 +1546,7 @@ impl World {
 
         // Total line
         let total_diversity = self.tier_diversities.iter().sum::<f32>() / 4.0;
-        let total_y = padding + font_size + line_height * 8.0;
+        let total_y = padding + font_size + line_height * 9.0;
         let total_text = format!(
             "total: {} cells ({:.0}% diversity)",
             total_alive,
