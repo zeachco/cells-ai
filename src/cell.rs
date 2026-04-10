@@ -452,6 +452,13 @@ impl Cell {
                 .min(HUNGER_MAX_MULTIPLIER);
             self.energy -= METABOLISM_ENERGY_LOSS * hunger_multiplier;
 
+            // Age-based energy depletion for cells over age 100
+            // Older cells lose energy faster: (age/100 - 1) per tick
+            if self.age > 100.0 {
+                let age_depletion = self.age / 100.0 - 1.0;
+                self.energy -= age_depletion;
+            }
+
             // Use neural network to decide action instead of random movement
             self.decide_action();
 
