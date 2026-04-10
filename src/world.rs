@@ -499,7 +499,10 @@ impl World {
         let best_cell_idx = self.last_best_cell_index;
 
         for (idx, cell) in self.cells.iter_mut().enumerate() {
-            if cell.energy > REPRODUCTION_ENERGY_THRESHOLD {
+            if cell.energy > REPRODUCTION_ENERGY_THRESHOLD
+                && cell.age < 15.0
+                && cell.ticks_since_last_child >= 2.0
+            {
                 // Check if we're at or over the max_cells cap
                 let projected_count = current_cell_count + new_cells.len();
                 if projected_count >= self.max_cells {
@@ -517,9 +520,10 @@ impl World {
                 child.energy = child_energy;
                 new_cells.push(child);
 
-                // Update parent energy and increment children count
+                // Update parent energy, increment children count, reset spawn cooldown
                 cell.energy = parent_energy;
                 cell.children_count += 1;
+                cell.ticks_since_last_child = 0.0;
 
                 // Save neural network if this is the best cell reproducing AND score improved
                 if Some(idx) == best_cell_idx {

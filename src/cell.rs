@@ -38,6 +38,7 @@ pub struct Cell {
     pub children_count: usize,         // Number of children produced
     pub generation: usize,             // Generation count (0 for initial, 1+ for descendants)
     pub ticks_since_last_fed: f32,     // Drives hunger multiplier on metabolism
+    pub ticks_since_last_child: f32,   // Cooldown between spawning children
     pub tracking_score: f32,           // Accumulated reward for turning toward corpses
     pub prev_target_angle: Option<f32>, // Previous angle to target (for tracking improvement)
     pub current_target_pos: Option<(f32, f32)>, // Current target position for debugging visualization
@@ -215,6 +216,7 @@ impl Cell {
             children_count: 0,
             generation: loaded_generation, // Use loaded generation from saved brain
             ticks_since_last_fed: 0.0,
+            ticks_since_last_child: 0.0,
             tracking_score: 0.0,
             prev_target_angle: None,
             current_target_pos: None,
@@ -294,6 +296,7 @@ impl Cell {
             children_count: 0,
             generation: self.generation + 1, // Increment generation
             ticks_since_last_fed: 0.0,
+            ticks_since_last_child: 0.0,
             tracking_score: 0.0,
             prev_target_angle: None,
             current_target_pos: None,
@@ -435,27 +438,21 @@ impl Cell {
             self.age += 0.1;
         }
 
-        // Cap energy at mass (max capacity)
-        if self.energy > self.mass {
-            let diff = self.energy - self.mass;
-            self.tracking_score += diff;
-            self.energy = self.mass;
-        }
-
         // Passive energy loss for all cells
         if self.state == CellState::Alive {
             // Hunger: metabolism scales up the longer a cell goes without eating,
             // pressuring cells to actively seek food rather than drift passively.
             self.ticks_since_last_fed += 1.0;
+            self.ticks_since_last_child += 1.0;
             let hunger_multiplier = (1.0
                 + (self.ticks_since_last_fed / HUNGER_RAMP_TICKS) * (HUNGER_MAX_MULTIPLIER - 1.0))
                 .min(HUNGER_MAX_MULTIPLIER);
             self.energy -= METABOLISM_ENERGY_LOSS * hunger_multiplier;
 
-            // Age-based energy depletion for cells over age 100
-            // Older cells lose energy faster: (age/100 - 1) per tick
-            if self.age > 100.0 {
-                let age_depletion = self.age / 100.0 - 1.0;
+            // Age-based energy depletion for cells over age 35
+            // Drain starts at 0 at age 35 and grows linearly: (age/100 - 0.35) per tick
+            if self.age > 35.0 {
+                let age_depletion = self.age / 100.0 - 0.35;
                 self.energy -= age_depletion;
             }
 
