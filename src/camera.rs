@@ -44,18 +44,20 @@ impl Camera {
     }
 
     pub fn handle_input(&mut self, delta_time: f32, skip_mouse_input: bool) {
+        let max_move = screen_width() / 10.0;
+
         // WASD for movement
         if is_key_down(KeyCode::W) {
-            self.target_y -= self.move_speed * delta_time;
+            self.target_y -= (self.move_speed * delta_time).min(max_move);
         }
         if is_key_down(KeyCode::S) {
-            self.target_y += self.move_speed * delta_time;
+            self.target_y += (self.move_speed * delta_time).min(max_move);
         }
         if is_key_down(KeyCode::A) {
-            self.target_x -= self.move_speed * delta_time;
+            self.target_x -= (self.move_speed * delta_time).min(max_move);
         }
         if is_key_down(KeyCode::D) {
-            self.target_x += self.move_speed * delta_time;
+            self.target_x += (self.move_speed * delta_time).min(max_move);
         }
 
         // Q and E for rotation
@@ -82,8 +84,8 @@ impl Camera {
 
             if is_mouse_button_down(MouseButton::Left) && self.is_dragging {
                 // Calculate delta movement
-                let delta_x = mouse_pos.0 - self.last_mouse_x;
-                let delta_y = mouse_pos.1 - self.last_mouse_y;
+                let delta_x = (mouse_pos.0 - self.last_mouse_x).clamp(-max_move, max_move);
+                let delta_y = (mouse_pos.1 - self.last_mouse_y).clamp(-max_move, max_move);
 
                 // Move camera directly in opposite direction (no velocity/interpolation)
                 self.x -= delta_x;
@@ -116,8 +118,8 @@ impl Camera {
             // Move camera directly with scroll (reversed for natural scrolling)
             // Scale the scroll values for appropriate speed
             let scroll_speed = 2.0;
-            let scroll_delta_x = scroll.0 * scroll_speed;
-            let scroll_delta_y = scroll.1 * scroll_speed;
+            let scroll_delta_x = (scroll.0 * scroll_speed).clamp(-max_move, max_move);
+            let scroll_delta_y = (scroll.1 * scroll_speed).clamp(-max_move, max_move);
 
             self.x -= scroll_delta_x;
             self.y -= scroll_delta_y;

@@ -11,6 +11,8 @@ pub struct BestCellStats {
     pub x: f32,
     pub y: f32,
     pub is_alive: bool,
+    pub brain_tier: usize,
+    pub brain_operations: usize,
 }
 
 pub struct Stats {
@@ -63,9 +65,10 @@ impl Stats {
         let line1 = "Energy: 999999.9"; // Max width estimate
         let line2 = "Children: 99999";
         let line3 = "Generation: 99999";
-        let line4 = "Age: 999.9";
-        let line5 = "Score: 999999.9";
-        let line6 = "Pos: (9999.9, 9999.9)";
+        let line4 = "Brain: m3 (99999 operations)";
+        let line5 = "Age: 999.9";
+        let line6 = "Score: 999999.9";
+        let line7 = "Pos: (9999.9, 9999.9)";
 
         let max_width = [
             measure_text(title, font, font_size as u16, 1.0).width,
@@ -75,6 +78,7 @@ impl Stats {
             measure_text(line4, font, font_size as u16, 1.0).width,
             measure_text(line5, font, font_size as u16, 1.0).width,
             measure_text(line6, font, font_size as u16, 1.0).width,
+            measure_text(line7, font, font_size as u16, 1.0).width,
         ]
         .iter()
         .cloned()
@@ -84,7 +88,7 @@ impl Stats {
         let bg_x = screen_w - max_width - padding - bg_padding * 2.0;
         let bg_y = padding - bg_padding;
         let bg_width = max_width + bg_padding * 2.0;
-        let bg_height = line_height * 7.0 + bg_padding;
+        let bg_height = line_height * 8.0 + bg_padding;
 
         Some((bg_x, bg_y, bg_width, bg_height))
     }
@@ -139,9 +143,13 @@ impl Stats {
             let line1 = format!("Energy: {:.1}", best.current_energy);
             let line2 = format!("Children: {}", best.children_count);
             let line3 = format!("Generation: {}", best.generation);
-            let line4 = format!("Age: {:.1}", best.age);
-            let line5 = format!("Score: {:.1}", score);
-            let line6 = format!("Pos: ({:.1}, {:.1})", best.x, best.y);
+            let line4 = format!(
+                "Brain: m{} ({} operations)",
+                best.brain_tier, best.brain_operations
+            );
+            let line5 = format!("Age: {:.1}", best.age);
+            let line6 = format!("Score: {:.1}", score);
+            let line7 = format!("Pos: ({:.1}, {:.1})", best.x, best.y);
 
             // Find the longest line for background width
             let max_width = [
@@ -152,6 +160,7 @@ impl Stats {
                 measure_text(&line4, font, font_size as u16, 1.0).width,
                 measure_text(&line5, font, font_size as u16, 1.0).width,
                 measure_text(&line6, font, font_size as u16, 1.0).width,
+                measure_text(&line7, font, font_size as u16, 1.0).width,
             ]
             .iter()
             .cloned()
@@ -162,7 +171,7 @@ impl Stats {
             let bg_x = screen_w - max_width - padding - bg_padding * 2.0;
             let bg_y = padding - bg_padding;
             let bg_width = max_width + bg_padding * 2.0;
-            let bg_height = line_height * 7.0 + bg_padding;
+            let bg_height = line_height * 8.0 + bg_padding;
 
             draw_rectangle(
                 bg_x,
@@ -241,6 +250,12 @@ impl Stats {
                 &line6,
                 x,
                 padding + font_size + line_height * 6.0,
+                text_params.clone(),
+            );
+            draw_text_ex(
+                &line7,
+                x,
+                padding + font_size + line_height * 7.0,
                 text_params,
             );
         }

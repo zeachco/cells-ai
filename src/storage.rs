@@ -2,15 +2,14 @@ use crate::neural_network::NeuralNetwork;
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_arch = "wasm32")]
-const NEURAL_NETWORK_KEY: &str = "best_brain";
+fn key_for_tier(tier: usize) -> String {
+    format!("best_brain_m{}", tier)
+}
 
 #[cfg(not(target_arch = "wasm32"))]
-const NEURAL_NETWORK_FILE: &str = "best_brain.json";
-
-// Include the default brain JSON at compile time for WASM builds
-// This serves as the initial brain when localStorage is empty (first run)
-#[cfg(target_arch = "wasm32")]
-const DEFAULT_BRAIN_JSON: &str = include_str!("../best_brain.json");
+fn file_for_tier(tier: usize) -> String {
+    format!("best_brain_m{}.json", tier)
+}
 
 // Note: The SavedState functionality has been disabled as Cell contains
 // types that cannot be easily serialized (like macroquad::Color).
@@ -39,9 +38,9 @@ unsafe extern "C" {
     fn storage_load(key: *const u8, key_len: usize, buffer: *mut u8, buffer_len: usize) -> usize;
 }
 
-/// Save a neural network with score metrics to localStorage
-/// This is called each time the best cell reproduces
+/// Save a neural network with score metrics to the tier-specific slot
 pub fn save_best_neural_network(
+    tier: usize,
     brain: &NeuralNetwork,
     generation: usize,
     score: f32,
@@ -61,75 +60,52 @@ pub fn save_best_neural_network(
 
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        storage_save(
-            NEURAL_NETWORK_KEY.as_ptr(),
-            NEURAL_NETWORK_KEY.len(),
-            json.as_ptr(),
-            json.len(),
-        );
-        println!("💾 Best brain saved to localStorage");
+        let key = key_for_tier(tier);
+        storage_save(key.as_ptr(), key.len(), json.as_ptr(), json.len());
+        println!("💾 Best brain (tier {}) saved to localStorage", tier);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // For native builds, save to file
-        if let Err(e) = std::fs::write(NEURAL_NETWORK_FILE, json.as_bytes()) {
-            println!("⚠ Failed to save brain to file: {}", e);
+        let path = file_for_tier(tier);
+        if let Err(e) = std::fs::write(&path, json.as_bytes()) {
+            println!("⚠ Failed to save brain (tier {}) to file: {}", tier, e);
         } else {
-            println!("💾 Best brain saved to file");
+            println!("💾 Best brain (tier {}) saved to file", tier);
         }
     }
 }
 
-/// Load a neural network, generation, and score from localStorage
-/// Returns None if no saved brain exists
+/// Load a neural network for the given tier slot.
+/// Returns None if no saved brain exists.
 /// Returns (brain, generation, score)
-pub fn load_best_neural_network() -> Option<(NeuralNetwork, usize, f32)> {
+pub fn load_best_neural_network(tier: usize) -> Option<(NeuralNetwork, usize, f32)> {
     #[cfg(target_arch = "wasm32")]
     unsafe {
+        let key = key_for_tier(tier);
         // Allocate a buffer for the result (max 1MB for neural network JSON)
         let mut buffer = vec![0u8; 1024 * 1024];
-        let len = storage_load(
-            NEURAL_NETWORK_KEY.as_ptr(),
-            NEURAL_NETWORK_KEY.len(),
-            buffer.as_mut_ptr(),
-            buffer.len(),
-        );
+        let len = storage_load(key.as_ptr(), key.len(), buffer.as_mut_ptr(), buffer.len());
 
         // Try to load from localStorage first
         if len > 0 {
             buffer.truncate(len);
             if let Ok(json) = String::from_utf8(buffer) {
-                // Try to load as SavedBrain first (new format with score metrics)
                 if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(&json) {
                     println!(
-                        "🧠 Loaded best brain from localStorage (generation {}, score {:.1})",
-                        saved_brain.generation, saved_brain.score
+                        "🧠 Loaded best brain (tier {}) from localStorage (gen {}, score {:.1})",
+                        tier, saved_brain.generation, saved_brain.score
                     );
                     return Some((saved_brain.brain, saved_brain.generation, saved_brain.score));
                 }
-                // Fall back to old format (just NeuralNetwork)
                 if let Some(brain) = NeuralNetwork::from_json(&json) {
                     println!(
-                        "🧠 Loaded best brain from localStorage (legacy format, generation unknown)"
+                        "🧠 Loaded best brain (tier {}) from localStorage (legacy format)",
+                        tier
                     );
                     return Some((brain, 0, 0.0));
                 }
             }
-        }
-
-        // If localStorage is empty or invalid, use the compiled-in default brain
-        if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(DEFAULT_BRAIN_JSON) {
-            println!(
-                "🧠 Loaded default brain from compiled JSON (generation {}, score {:.1})",
-                saved_brain.generation, saved_brain.score
-            );
-            return Some((saved_brain.brain, saved_brain.generation, saved_brain.score));
-        }
-        // Fall back to old format if default is in legacy format
-        if let Some(brain) = NeuralNetwork::from_json(DEFAULT_BRAIN_JSON) {
-            println!("🧠 Loaded default brain from compiled JSON (legacy format)");
-            return Some((brain, 0, 0.0));
         }
 
         None
@@ -137,19 +113,20 @@ pub fn load_best_neural_network() -> Option<(NeuralNetwork, usize, f32)> {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // For native builds, load from file
-        if let Ok(json) = std::fs::read_to_string(NEURAL_NETWORK_FILE) {
-            // Try to load as SavedBrain first (new format with score metrics)
+        let path = file_for_tier(tier);
+        if let Ok(json) = std::fs::read_to_string(&path) {
             if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(&json) {
                 println!(
-                    "🧠 Loaded best brain from file (generation {}, score {:.1})",
-                    saved_brain.generation, saved_brain.score
+                    "🧠 Loaded best brain (tier {}) from file (gen {}, score {:.1})",
+                    tier, saved_brain.generation, saved_brain.score
                 );
                 return Some((saved_brain.brain, saved_brain.generation, saved_brain.score));
             }
-            // Fall back to old format (just NeuralNetwork)
             if let Some(brain) = NeuralNetwork::from_json(&json) {
-                println!("🧠 Loaded best brain from file (legacy format, generation unknown)");
+                println!(
+                    "🧠 Loaded best brain (tier {}) from file (legacy format)",
+                    tier
+                );
                 return Some((brain, 0, 0.0));
             }
         }

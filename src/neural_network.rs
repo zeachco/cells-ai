@@ -24,13 +24,28 @@ pub struct NeuralNetwork {
 }
 
 impl NeuralNetwork {
-    /// Create a new neural network with random weights
+    /// Create a new neural network with random weights (1x hidden layer width)
     ///
     /// # Arguments
     /// * `input_size` - Number of inputs (proximity sensors)
     /// * `output_size` - Number of outputs (actions)
+    #[allow(dead_code)]
     pub fn new(input_size: usize, output_size: usize) -> Self {
-        let hidden_size = 2 * (input_size + output_size);
+        Self::new_with_multiplier(input_size, output_size, 1)
+    }
+
+    /// Create a new neural network with a hidden layer size multiplier
+    ///
+    /// # Arguments
+    /// * `input_size` - Number of inputs
+    /// * `output_size` - Number of outputs
+    /// * `hidden_multiplier` - Multiplier for hidden layer width (1x, 2x, 3x, 4x)
+    pub fn new_with_multiplier(
+        input_size: usize,
+        output_size: usize,
+        hidden_multiplier: usize,
+    ) -> Self {
+        let hidden_size = hidden_multiplier * 2 * (input_size + output_size);
 
         // Initialize weights and biases with random values between -1.0 and 1.0
         let weights_ih = (0..hidden_size)
@@ -150,6 +165,11 @@ impl NeuralNetwork {
                 self.bias_o[i] = (self.bias_o[i] + delta).clamp(-2.0, 2.0);
             }
         }
+    }
+
+    /// Number of multiplications performed in one forward pass
+    pub fn operation_count(&self) -> usize {
+        self.hidden_size * (self.input_size + self.output_size)
     }
 
     /// Get the action index with the highest activation

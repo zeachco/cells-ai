@@ -1,3 +1,4 @@
 /target
 node_modules
 dist
+best_brain_m*.json

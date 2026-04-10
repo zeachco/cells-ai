@@ -55,6 +55,7 @@ pub struct Cell {
 
     // ===== Neural Network Brain =====
     pub brain: NeuralNetwork,
+    pub brain_tier: usize, // 0-3: determines hidden layer width and hue offset
 
     // ===== Inherited Attributes (passed to children) =====
     pub color: Color,
@@ -146,6 +147,7 @@ impl Cell {
     pub fn spawn(
         world_width: f32,
         world_height: f32,
+        brain_tier: usize,
         cached_brain: &Option<(NeuralNetwork, usize)>,
     ) -> Self {
         let speed = rand::gen_range(0.2, 1.0);
@@ -157,6 +159,8 @@ impl Cell {
         // Mass: max energy capacity, around 200 ± 10%
         let mass = rand::gen_range(180.0, 220.0);
 
+        let hidden_multiplier = brain_tier + 1;
+
         // Use cached brain if available, otherwise create a new random network
         let (brain, loaded_generation) = if let Some((saved_brain, generation)) = cached_brain {
             let mut brain = saved_brain.clone();
@@ -165,9 +169,15 @@ impl Cell {
             brain.mutate(mutation_rate);
             (brain, *generation)
         } else {
-            // No cached brain, create new random network
-            (NeuralNetwork::new(21, 4), 0)
+            // No cached brain, create new random network with tier-appropriate size
+            (
+                NeuralNetwork::new_with_multiplier(21, 4, hidden_multiplier),
+                0,
+            )
         };
+
+        // Hue offset: 0° for tier 0, +90° for each subsequent tier
+        let base_hue = (180.0 + brain_tier as f32 * 90.0).rem_euclid(360.0);
 
         Cell {
             // Individual State
@@ -198,9 +208,10 @@ impl Cell {
 
             // Neural Network Brain
             brain,
+            brain_tier,
 
             // Inherited Attributes
-            color: Self::hsv_to_rgb(180.0, 0.8, 0.9), // Teal color (hue=180°)
+            color: Self::hsv_to_rgb(base_hue, 0.8, 0.9),
             radius: rand::gen_range(6.0, 15.0),
             move_probability: rand::gen_range(0.05, 0.15),
             turn_probability: rand::gen_range(0.05, 0.15),
@@ -260,6 +271,7 @@ impl Cell {
 
             // Neural Network Brain (inherited and mutated)
             brain,
+            brain_tier: self.brain_tier,
 
             // Inherited Attributes (from parent with 1% mutation)
             color: mutated_color,

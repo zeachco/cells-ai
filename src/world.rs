@@ -54,10 +54,10 @@ pub struct World {
     pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
     // Configuration
     config: SimulationConfig,
-    // Cached best neural network (brain, generation) - loaded once from storage
-    cached_best_brain: Option<(crate::neural_network::NeuralNetwork, usize)>,
-    // Best saved score (to avoid saving worse models)
-    best_saved_score: f32,
+    // Cached best neural networks per tier (brain, generation) - loaded once from storage
+    cached_best_brains: [Option<(crate::neural_network::NeuralNetwork, usize)>; 4],
+    // Best saved score per tier (to avoid saving worse models)
+    best_saved_scores: [f32; 4],
     // Custom font for rendering
     font: Option<Font>,
     // Parallax star-field background
@@ -68,19 +68,28 @@ impl World {
     pub fn spawn(font: Option<Font>) -> Self {
         let config = get_config();
 
-        // Load best brain once from storage and cache it
-        let loaded_data = crate::storage::load_best_neural_network();
-        let cached_best_brain = loaded_data
-            .as_ref()
-            .map(|(brain, generation, _score)| (brain.clone(), *generation));
-        let best_saved_score = loaded_data
-            .as_ref()
-            .map(|(_, _, score)| *score)
-            .unwrap_or(0.0);
+        // Load best brain for each tier from storage
+        let mut cached_best_brains: [Option<(crate::neural_network::NeuralNetwork, usize)>; 4] =
+            [None, None, None, None];
+        let mut best_saved_scores = [0.0f32; 4];
+
+        for tier in 0..4 {
+            let loaded_data = crate::storage::load_best_neural_network(tier);
+            if let Some((brain, generation, score)) = loaded_data {
+                cached_best_brains[tier] = Some((brain, generation));
+                best_saved_scores[tier] = score;
+            }
+        }
 
         let mut cells = Vec::new();
         for i in 0..config.initial_cell_count {
-            let mut cell = Cell::spawn(config.world_width, config.world_height, &cached_best_brain);
+            let tier = i % 4;
+            let mut cell = Cell::spawn(
+                config.world_width,
+                config.world_height,
+                tier,
+                &cached_best_brains[tier],
+            );
             // Half the population starts with low energy so they die quickly,
             // seeding the world with corpses for others to eat.
             if i % 2 == 1 {
@@ -106,8 +115,8 @@ impl World {
             simulation_speed: 1.0,
             color_diversity: 0.0,
             config,
-            cached_best_brain,
-            best_saved_score,
+            cached_best_brains,
+            best_saved_scores,
             font,
             background: match crate::background::Background::new() {
                 Ok(bg) => Some(bg),
@@ -146,13 +155,15 @@ impl World {
                 best_cell.score()
             );
         } else {
-            // No best cell genome, spawn fresh cells using cached brain
+            // No best cell genome, spawn fresh cells using cached brains by tier
             let spawn_count = self.max_cells.min(self.config.initial_cell_count);
-            for _ in 0..spawn_count {
+            for i in 0..spawn_count {
+                let tier = i % 4;
                 self.cells.push(Cell::spawn(
                     self.config.world_width,
                     self.config.world_height,
-                    &self.cached_best_brain,
+                    tier,
+                    &self.cached_best_brains[tier],
                 ));
             }
             println!("World reset! Spawned {} fresh cells", spawn_count);
@@ -194,20 +205,27 @@ impl World {
             let best_cell = &self.cells[best_idx];
             if best_cell.state == CellState::Corpse {
                 let score = best_cell.score();
-                // Only save if score is positive and better than previous best
-                if score > self.best_saved_score {
+                let tier = best_cell.brain_tier;
+                // Only save if score is positive and better than previous best for this tier
+                if score > self.best_saved_scores[tier] {
+                    let brain_clone = best_cell.brain.clone();
+                    let generation = best_cell.generation;
+                    let children = best_cell.children_count;
+                    let energy = best_cell.energy_from_cells;
+                    let age = best_cell.age;
                     crate::storage::save_best_neural_network(
-                        &best_cell.brain,
-                        best_cell.generation,
+                        tier,
+                        &brain_clone,
+                        generation,
                         score,
-                        best_cell.children_count,
-                        best_cell.energy_from_cells,
-                        best_cell.age,
+                        children,
+                        energy,
+                        age,
                     );
                     // Update cache and best score
-                    self.cached_best_brain = Some((best_cell.brain.clone(), best_cell.generation));
-                    self.best_saved_score = score;
-                    println!("📈 New high score: {:.1}", score);
+                    self.cached_best_brains[tier] = Some((brain_clone, generation));
+                    self.best_saved_scores[tier] = score;
+                    println!("📈 New high score (tier {}): {:.1}", tier, score);
                 }
             }
         }
@@ -415,23 +433,30 @@ impl World {
                 // Save neural network if this is the best cell reproducing AND score improved
                 if Some(idx) == best_cell_idx {
                     let score = cell.score();
-                    // Only save if score is better than previous best
-                    if score > self.best_saved_score {
-                        let prev_score = self.best_saved_score;
+                    let tier = cell.brain_tier;
+                    // Only save if score is better than previous best for this tier
+                    if score > self.best_saved_scores[tier] {
+                        let prev_score = self.best_saved_scores[tier];
+                        let brain_clone = cell.brain.clone();
+                        let generation = cell.generation;
+                        let children = cell.children_count;
+                        let energy = cell.energy_from_cells;
+                        let age = cell.age;
                         crate::storage::save_best_neural_network(
-                            &cell.brain,
-                            cell.generation,
+                            tier,
+                            &brain_clone,
+                            generation,
                             score,
-                            cell.children_count,
-                            cell.energy_from_cells,
-                            cell.age,
+                            children,
+                            energy,
+                            age,
                         );
                         // Update cache and best score
-                        self.cached_best_brain = Some((cell.brain.clone(), cell.generation));
-                        self.best_saved_score = score;
+                        self.cached_best_brains[tier] = Some((brain_clone, generation));
+                        self.best_saved_scores[tier] = score;
                         println!(
-                            "📈 New high score: {:.1} (previous: {:.1})",
-                            score, prev_score
+                            "📈 New high score (tier {}): {:.1} (previous: {:.1})",
+                            tier, score, prev_score
                         );
                     }
                 }
@@ -651,6 +676,8 @@ impl World {
                     x: best_cell.x,
                     y: best_cell.y,
                     is_alive: true, // is_alive is guaranteed true since we filtered for it
+                    brain_tier: best_cell.brain_tier,
+                    brain_operations: best_cell.brain.operation_count(),
                 });
 
                 // Update selected cell index if stats are selected
@@ -673,6 +700,8 @@ impl World {
                         x: dead_cell.x,
                         y: dead_cell.y,
                         is_alive: false,
+                        brain_tier: dead_cell.brain_tier,
+                        brain_operations: dead_cell.brain.operation_count(),
                     });
                 }
             }
