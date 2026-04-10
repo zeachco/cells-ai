@@ -53,6 +53,7 @@ pub struct World {
     pub paused: bool,
     pub simulation_speed: f32, // 1.0 = normal, 0.5 = half speed, 2.0 = double speed
     pub tick_count: usize,     // Cumulative ticks, resets on sim reset
+    pub reset_count: usize,    // Cumulative ticks, resets on sim reset
     // Diversity tracking
     pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
     pub tier_cell_counts: [usize; 4],
@@ -119,6 +120,7 @@ impl World {
             paused: false,
             simulation_speed: 1.0,
             tick_count: 0,
+            reset_count: 0,
             color_diversity: 0.0,
             tier_cell_counts: [0; 4],
             tier_diversities: [0.0; 4],
@@ -143,6 +145,7 @@ impl World {
 
         // Reset tick counter
         self.tick_count = 0;
+        self.reset_count += 1;
 
         // Spawn new cells equally distributed across all 4 tiers
         let spawn_count = self.max_cells.min(self.config.initial_cell_count);
@@ -1447,7 +1450,7 @@ impl World {
         );
 
         // Line 5: Cumulative ticks
-        let ticks_text = format!("Ticks: {}", self.tick_count);
+        let ticks_text = format!("Ticks: {} ({} resets)", self.tick_count, self.reset_count);
         draw_text(
             &ticks_text,
             padding,
