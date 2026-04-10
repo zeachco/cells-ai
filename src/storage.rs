@@ -1,6 +1,10 @@
 use crate::neural_network::NeuralNetwork;
 use serde::{Deserialize, Serialize};
 
+// Expected neural network input size (must match cell sensor normalization)
+// 5 sensors × 4 values + 1 energy + 5 center-of-mass values = 26
+const EXPECTED_INPUT_SIZE: usize = 26;
+
 #[cfg(target_arch = "wasm32")]
 fn key_for_tier(tier: usize) -> String {
     format!("best_brain_m{}", tier)
@@ -36,6 +40,9 @@ unsafe extern "C" {
     /// Load a string from localStorage (JavaScript implementation)
     /// Returns the length of the loaded string, or 0 if not found
     fn storage_load(key: *const u8, key_len: usize, buffer: *mut u8, buffer_len: usize) -> usize;
+
+    /// Delete a key from localStorage (JavaScript implementation)
+    fn storage_delete(key: *const u8, key_len: usize);
 }
 
 /// Save a neural network with score metrics to the tier-specific slot
@@ -92,6 +99,15 @@ pub fn load_best_neural_network(tier: usize) -> Option<(NeuralNetwork, usize, f3
             buffer.truncate(len);
             if let Ok(json) = String::from_utf8(buffer) {
                 if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(&json) {
+                    // Validate input size matches current architecture
+                    if saved_brain.brain.input_size != EXPECTED_INPUT_SIZE {
+                        println!(
+                            "⚠ Incompatible brain (tier {}): expected {} inputs, found {}. Deleting...",
+                            tier, EXPECTED_INPUT_SIZE, saved_brain.brain.input_size
+                        );
+                        storage_delete(key.as_ptr(), key.len());
+                        return None;
+                    }
                     println!(
                         "🧠 Loaded best brain (tier {}) from localStorage (gen {}, score {:.1})",
                         tier, saved_brain.generation, saved_brain.score
@@ -99,6 +115,15 @@ pub fn load_best_neural_network(tier: usize) -> Option<(NeuralNetwork, usize, f3
                     return Some((saved_brain.brain, saved_brain.generation, saved_brain.score));
                 }
                 if let Some(brain) = NeuralNetwork::from_json(&json) {
+                    // Validate input size for legacy format
+                    if brain.input_size != EXPECTED_INPUT_SIZE {
+                        println!(
+                            "⚠ Incompatible legacy brain (tier {}): expected {} inputs, found {}. Deleting...",
+                            tier, EXPECTED_INPUT_SIZE, brain.input_size
+                        );
+                        storage_delete(key.as_ptr(), key.len());
+                        return None;
+                    }
                     println!(
                         "🧠 Loaded best brain (tier {}) from localStorage (legacy format)",
                         tier
@@ -116,6 +141,15 @@ pub fn load_best_neural_network(tier: usize) -> Option<(NeuralNetwork, usize, f3
         let path = file_for_tier(tier);
         if let Ok(json) = std::fs::read_to_string(&path) {
             if let Ok(saved_brain) = serde_json::from_str::<SavedBrain>(&json) {
+                // Validate input size matches current architecture
+                if saved_brain.brain.input_size != EXPECTED_INPUT_SIZE {
+                    println!(
+                        "⚠ Incompatible brain (tier {}): expected {} inputs, found {}. Deleting {}...",
+                        tier, EXPECTED_INPUT_SIZE, saved_brain.brain.input_size, path
+                    );
+                    let _ = std::fs::remove_file(&path);
+                    return None;
+                }
                 println!(
                     "🧠 Loaded best brain (tier {}) from file (gen {}, score {:.1})",
                     tier, saved_brain.generation, saved_brain.score
@@ -123,6 +157,15 @@ pub fn load_best_neural_network(tier: usize) -> Option<(NeuralNetwork, usize, f3
                 return Some((saved_brain.brain, saved_brain.generation, saved_brain.score));
             }
             if let Some(brain) = NeuralNetwork::from_json(&json) {
+                // Validate input size for legacy format
+                if brain.input_size != EXPECTED_INPUT_SIZE {
+                    println!(
+                        "⚠ Incompatible legacy brain (tier {}): expected {} inputs, found {}. Deleting {}...",
+                        tier, EXPECTED_INPUT_SIZE, brain.input_size, path
+                    );
+                    let _ = std::fs::remove_file(&path);
+                    return None;
+                }
                 println!(
                     "🧠 Loaded best brain (tier {}) from file (legacy format)",
                     tier

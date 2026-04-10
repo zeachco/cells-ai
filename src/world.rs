@@ -574,6 +574,68 @@ impl World {
                 sensor_data.truncate(SENSOR_COUNT);
             }
 
+            // Calculate center of mass for dead and alive cells separately
+            let (dead_cells, alive_cells): (Vec<_>, Vec<_>) = sensor_data
+                .iter()
+                .partition(|&&(_, _, _, _, is_alive, _)| is_alive == 0.0);
+
+            let dead_count = dead_cells.len() as f32;
+            let alive_count = alive_cells.len() as f32;
+            let total_count = dead_count + alive_count;
+
+            // Calculate dead/alive ratio: -1.0 = all alive, 1.0 = all dead, 0.0 = balanced
+            cell.dead_alive_ratio = if total_count > 0.0 {
+                (dead_count - alive_count) / total_count
+            } else {
+                0.0
+            };
+
+            // Calculate center of mass for dead cells
+            if !dead_cells.is_empty() {
+                let mut sum_x = 0.0f32;
+                let mut sum_y = 0.0f32;
+
+                for &&(_j, angle_from_front, distance, _, _, _) in &dead_cells {
+                    // Convert to cell's local coordinate frame (angle_from_front is already relative to facing direction)
+                    sum_x += angle_from_front.cos() * distance;
+                    sum_y += angle_from_front.sin() * distance;
+                }
+
+                let avg_x = sum_x / dead_count;
+                let avg_y = sum_y / dead_count;
+
+                // Calculate angle and distance to center of mass (in cell's local frame)
+                cell.dead_center_distance = (avg_x * avg_x + avg_y * avg_y).sqrt();
+                cell.dead_center_angle = avg_y.atan2(avg_x); // Relative to cell's facing direction
+            } else {
+                // No dead cells detected
+                cell.dead_center_angle = 0.0;
+                cell.dead_center_distance = SENSOR_RANGE; // Max range indicates nothing detected
+            }
+
+            // Calculate center of mass for alive cells
+            if !alive_cells.is_empty() {
+                let mut sum_x = 0.0f32;
+                let mut sum_y = 0.0f32;
+
+                for &&(_j, angle_from_front, distance, _, _, _) in &alive_cells {
+                    // Convert to cell's local coordinate frame (angle_from_front is already relative to facing direction)
+                    sum_x += angle_from_front.cos() * distance;
+                    sum_y += angle_from_front.sin() * distance;
+                }
+
+                let avg_x = sum_x / alive_count;
+                let avg_y = sum_y / alive_count;
+
+                // Calculate angle and distance to center of mass (in cell's local frame)
+                cell.alive_center_distance = (avg_x * avg_x + avg_y * avg_y).sqrt();
+                cell.alive_center_angle = avg_y.atan2(avg_x); // Relative to cell's facing direction
+            } else {
+                // No alive cells detected
+                cell.alive_center_angle = 0.0;
+                cell.alive_center_distance = SENSOR_RANGE; // Max range indicates nothing detected
+            }
+
             cell.nearest_cells = sensor_data;
         });
     }
@@ -1107,6 +1169,66 @@ impl World {
 
                             // Draw small circle at target position
                             draw_circle(target_screen_x, target_screen_y, 5.0, line_color);
+                        }
+
+                        // Draw center of mass indicators for dead and alive cells
+                        // Light gray for dead cells, yellow for alive cells
+                        const CENTER_OF_MASS_RADIUS: f32 = 8.0;
+
+                        // Dead cells center of mass (light gray)
+                        if cell.dead_center_distance < SENSOR_RANGE {
+                            // Calculate screen position from cell's local frame
+                            let dead_center_world_angle = cell.angle + cell.dead_center_angle;
+                            let dead_center_world_x =
+                                cell.x + dead_center_world_angle.cos() * cell.dead_center_distance;
+                            let dead_center_world_y =
+                                cell.y + dead_center_world_angle.sin() * cell.dead_center_distance;
+
+                            let dead_center_screen_x = dead_center_world_x - adjusted_camera_x;
+                            let dead_center_screen_y = dead_center_world_y - adjusted_camera_y;
+
+                            let light_gray = Color::new(0.7, 0.7, 0.7, 0.8);
+                            draw_circle(
+                                dead_center_screen_x,
+                                dead_center_screen_y,
+                                CENTER_OF_MASS_RADIUS,
+                                light_gray,
+                            );
+                            draw_circle_lines(
+                                dead_center_screen_x,
+                                dead_center_screen_y,
+                                CENTER_OF_MASS_RADIUS,
+                                2.0,
+                                Color::new(0.5, 0.5, 0.5, 1.0),
+                            );
+                        }
+
+                        // Alive cells center of mass (yellow)
+                        if cell.alive_center_distance < SENSOR_RANGE {
+                            // Calculate screen position from cell's local frame
+                            let alive_center_world_angle = cell.angle + cell.alive_center_angle;
+                            let alive_center_world_x = cell.x
+                                + alive_center_world_angle.cos() * cell.alive_center_distance;
+                            let alive_center_world_y = cell.y
+                                + alive_center_world_angle.sin() * cell.alive_center_distance;
+
+                            let alive_center_screen_x = alive_center_world_x - adjusted_camera_x;
+                            let alive_center_screen_y = alive_center_world_y - adjusted_camera_y;
+
+                            let yellow = Color::new(1.0, 1.0, 0.0, 0.8);
+                            draw_circle(
+                                alive_center_screen_x,
+                                alive_center_screen_y,
+                                CENTER_OF_MASS_RADIUS,
+                                yellow,
+                            );
+                            draw_circle_lines(
+                                alive_center_screen_x,
+                                alive_center_screen_y,
+                                CENTER_OF_MASS_RADIUS,
+                                2.0,
+                                Color::new(0.8, 0.8, 0.0, 1.0),
+                            );
                         }
                     }
                 }

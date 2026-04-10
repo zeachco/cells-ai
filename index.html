@@ -75,6 +75,17 @@
                     return 0;
                 }
             };
+
+            importObject.env.storage_delete = function(keyPtr, keyLen) {
+                try {
+                    const key = new TextDecoder().decode(
+                        new Uint8Array(wasm_memory.buffer, keyPtr, keyLen)
+                    );
+                    localStorage.removeItem(key);
+                } catch (e) {
+                    console.error('Failed to delete from localStorage:', e);
+                }
+            };
             }
         });
 

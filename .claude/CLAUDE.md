@@ -78,7 +78,7 @@ Pre-commit hooks via lefthook automatically run:
 Each cell has:
 - **Individual State**: Position, energy, velocity, age (affects size and energy costs)
 - **Inherited Attributes**: Color, radius, speed, turn rate, energy chunk size, species multiplier, mass (max energy capacity)
-- **Neural Network Brain**: 21 inputs (5 sensors × 4 values + current energy level), 4 outputs (actions)
+- **Neural Network Brain**: 26 inputs (5 sensors × 4 values + 1 energy + 5 center-of-mass values), 4 outputs (actions)
 - **Stats Tracking**: Total energy accumulated, children count (used for fitness calculation)
 
 **Energy System**:

@@ -53,6 +53,13 @@ pub struct Cell {
     // energy: target cell's current energy
     pub nearest_cells: Vec<(usize, f32, f32, f32, f32, f32)>, // (index, angle, distance, mass, is_alive, energy) for 5 nearest cells
 
+    // Center of mass sensors (calculated from nearest_cells)
+    pub dead_alive_ratio: f32, // -1.0 = all alive, 1.0 = all dead, 0.0 = balanced
+    pub dead_center_angle: f32, // Angle to dead cells center of mass (radians, -PI to PI)
+    pub dead_center_distance: f32, // Distance to dead cells center of mass
+    pub alive_center_angle: f32, // Angle to alive cells center of mass (radians, -PI to PI)
+    pub alive_center_distance: f32, // Distance to alive cells center of mass
+
     // ===== Neural Network Brain =====
     pub brain: NeuralNetwork,
     pub brain_tier: usize, // 0-3: determines hidden layer width and hue offset
@@ -171,7 +178,7 @@ impl Cell {
         } else {
             // No cached brain, create new random network with tier-appropriate size
             (
-                NeuralNetwork::new_with_multiplier(21, 4, hidden_multiplier),
+                NeuralNetwork::new_with_multiplier(26, 4, hidden_multiplier),
                 0,
             )
         };
@@ -205,6 +212,11 @@ impl Cell {
 
             // Sensors
             nearest_cells: Vec::new(),
+            dead_alive_ratio: 0.0,
+            dead_center_angle: 0.0,
+            dead_center_distance: 200.0, // Default to max range (nothing detected)
+            alive_center_angle: 0.0,
+            alive_center_distance: 200.0,
 
             // Neural Network Brain
             brain,
@@ -268,6 +280,11 @@ impl Cell {
 
             // Sensors
             nearest_cells: Vec::new(),
+            dead_alive_ratio: 0.0,
+            dead_center_angle: 0.0,
+            dead_center_distance: 200.0, // Default to max range (nothing detected)
+            alive_center_angle: 0.0,
+            alive_center_distance: 200.0,
 
             // Neural Network Brain (inherited and mutated)
             brain,
@@ -289,11 +306,12 @@ impl Cell {
     // Normalize sensor inputs for neural network
     // Each sensor returns 4 values: angle, distance, mass, is_alive
     // Plus 1 value for current energy level
-    // Total: 5 sensors × 4 values + 1 energy = 21 inputs
+    // Plus 5 values for center of mass (dead/alive ratio, dead angle/distance, alive angle/distance)
+    // Total: 5 sensors × 4 values + 1 energy + 5 center of mass = 26 inputs
     fn normalize_sensors(&self) -> Vec<f32> {
         use crate::world::{DEPLETED_CELL_ENERGY, REPRODUCTION_ENERGY_THRESHOLD, SENSOR_RANGE};
         const MAX_MASS: f32 = 220.0; // Maximum mass value from spawn()
-        let mut inputs = Vec::with_capacity(21);
+        let mut inputs = Vec::with_capacity(26);
 
         for i in 0..5 {
             if i < self.nearest_cells.len() {
@@ -326,12 +344,34 @@ impl Cell {
             }
         }
 
-        // Add current energy level as final input
+        // Add current energy level as input
         // Normalize: DEPLETED_CELL_ENERGY (-100) -> 0.0, REPRODUCTION_ENERGY_THRESHOLD (100) -> 1.0
         let energy_range = REPRODUCTION_ENERGY_THRESHOLD - DEPLETED_CELL_ENERGY;
         let normalized_energy =
             ((self.energy - DEPLETED_CELL_ENERGY) / energy_range).clamp(0.0, 1.0);
         inputs.push(normalized_energy);
+
+        // Add center of mass inputs (5 values)
+        // Dead/alive ratio: -1.0 = all alive cells, 1.0 = all dead cells, 0.0 = balanced
+        inputs.push(self.dead_alive_ratio);
+
+        // Dead cells center of mass
+        // Angle: -PI..PI -> -1..1
+        let normalized_dead_angle = self.dead_center_angle / std::f32::consts::PI;
+        inputs.push(normalized_dead_angle);
+        // Distance: 0..SENSOR_RANGE -> 1..-1 (closer = higher value)
+        let normalized_dead_distance = (SENSOR_RANGE - self.dead_center_distance) / SENSOR_RANGE;
+        let normalized_dead_distance = normalized_dead_distance * 2.0 - 1.0;
+        inputs.push(normalized_dead_distance);
+
+        // Alive cells center of mass
+        // Angle: -PI..PI -> -1..1
+        let normalized_alive_angle = self.alive_center_angle / std::f32::consts::PI;
+        inputs.push(normalized_alive_angle);
+        // Distance: 0..SENSOR_RANGE -> 1..-1 (closer = higher value)
+        let normalized_alive_distance = (SENSOR_RANGE - self.alive_center_distance) / SENSOR_RANGE;
+        let normalized_alive_distance = normalized_alive_distance * 2.0 - 1.0;
+        inputs.push(normalized_alive_distance);
 
         inputs
     }
