@@ -71,8 +71,9 @@ Pre-commit hooks via lefthook automatically run:
 **Simulation Controls**:
 - `SPACE`: Toggle pause
 - `R`: Reset world with best genome
-- `+/-`: Adjust simulation speed (0.125x to 8.0x)
+- `+/-`: Adjust simulation speed (1.0x to 8.0x, multiplies by 1.5x each step)
 - `1`: Reset to normal speed
+- Simulation speed runs multiple update ticks per frame (e.g., 2.0x runs 2 ticks/frame)
 
 #### Cell Behavior (src/cell.rs)
 Each cell has:

@@ -14,6 +14,7 @@ pub struct BestCellStats {
     pub brain_tier: usize,
     pub brain_operations: usize,
     pub cell_index: usize,
+    pub prev_best_score: f32, // Previous best score for this tier
 }
 
 pub struct Stats {
@@ -58,7 +59,8 @@ impl Stats {
         self.best_cell.as_ref()?;
 
         let screen_w = screen_width();
-        let font_size = 24.0;
+        let screen_h = screen_height();
+        let font_size = 23.0;
         let line_height = 30.0;
         let padding = 20.0;
 
@@ -69,7 +71,7 @@ impl Stats {
         let line4 = "Generation: 99999";
         let line5 = "Brain: m3 (99999 operations)";
         let line6 = "Age: 999.9";
-        let line7 = "Score: 999999.9";
+        let line7 = "Score: 999999.9 + 999999.9"; // Account for diff display
         let line8 = "Pos: (9999.9, 9999.9)";
 
         let max_width = [
@@ -89,9 +91,9 @@ impl Stats {
 
         let bg_padding = 10.0;
         let bg_x = screen_w - max_width - padding - bg_padding * 2.0;
-        let bg_y = padding - bg_padding;
         let bg_width = max_width + bg_padding * 2.0;
         let bg_height = line_height * 9.0 + bg_padding;
+        let bg_y = screen_h - bg_height - padding;
 
         Some((bg_x, bg_y, bg_width, bg_height))
     }
@@ -130,11 +132,12 @@ impl Stats {
         }
     }
 
-    // Render stats in top-right corner
+    // Render stats in bottom-right corner
     pub fn render(&self, font: Option<&Font>) {
         if let Some(best) = &self.best_cell {
             let screen_w = screen_width();
-            let font_size = 24.0;
+            let screen_h = screen_height();
+            let font_size = 23.0;
             let line_height = 30.0;
             let padding = 30.0;
 
@@ -152,10 +155,24 @@ impl Stats {
                 best.brain_tier, best.brain_operations
             );
             let line6 = format!("Age: {:.1}", best.age);
-            let line7 = format!("Score: {:.1}", score);
+
+            // Check if current score beats previous best
+            let score_diff = score - best.prev_best_score;
+            let line7 = if score > best.prev_best_score {
+                format!("Score: {:.1}", best.prev_best_score)
+            } else {
+                format!("Score: {:.1}", score)
+            };
+            let line7_diff = if score > best.prev_best_score {
+                format!(" + {:.1}", score_diff)
+            } else {
+                String::new()
+            };
+
             let line8 = format!("Pos: ({:.1}, {:.1})", best.x, best.y);
 
             // Find the longest line for background width
+            let line7_full = format!("{}{}", line7, line7_diff);
             let max_width = [
                 measure_text(title, font, font_size as u16, 1.0).width,
                 measure_text(&line1, font, font_size as u16, 1.0).width,
@@ -164,7 +181,7 @@ impl Stats {
                 measure_text(&line4, font, font_size as u16, 1.0).width,
                 measure_text(&line5, font, font_size as u16, 1.0).width,
                 measure_text(&line6, font, font_size as u16, 1.0).width,
-                measure_text(&line7, font, font_size as u16, 1.0).width,
+                measure_text(&line7_full, font, font_size as u16, 1.0).width,
                 measure_text(&line8, font, font_size as u16, 1.0).width,
             ]
             .iter()
@@ -174,9 +191,9 @@ impl Stats {
             // Draw semi-transparent background
             let bg_padding = 10.0;
             let bg_x = screen_w - max_width - padding - bg_padding * 2.0;
-            let bg_y = padding - bg_padding;
             let bg_width = max_width + bg_padding * 2.0;
             let bg_height = line_height * 9.0 + bg_padding;
+            let bg_y = screen_h - bg_height - padding;
 
             draw_rectangle(
                 bg_x,
@@ -217,56 +234,71 @@ impl Stats {
             draw_text_ex(
                 title_with_status,
                 x,
-                padding + font_size,
+                bg_y + bg_padding + font_size,
                 text_params.clone(),
             );
 
             draw_text_ex(
                 &line1,
                 x,
-                padding + font_size + line_height,
+                bg_y + bg_padding + font_size + line_height,
                 text_params.clone(),
             );
             draw_text_ex(
                 &line2,
                 x,
-                padding + font_size + line_height * 2.0,
+                bg_y + bg_padding + font_size + line_height * 2.0,
                 text_params.clone(),
             );
             draw_text_ex(
                 &line3,
                 x,
-                padding + font_size + line_height * 3.0,
+                bg_y + bg_padding + font_size + line_height * 3.0,
                 text_params.clone(),
             );
             draw_text_ex(
                 &line4,
                 x,
-                padding + font_size + line_height * 4.0,
+                bg_y + bg_padding + font_size + line_height * 4.0,
                 text_params.clone(),
             );
             draw_text_ex(
                 &line5,
                 x,
-                padding + font_size + line_height * 5.0,
+                bg_y + bg_padding + font_size + line_height * 5.0,
                 text_params.clone(),
             );
             draw_text_ex(
                 &line6,
                 x,
-                padding + font_size + line_height * 6.0,
+                bg_y + bg_padding + font_size + line_height * 6.0,
                 text_params.clone(),
             );
-            draw_text_ex(
-                &line7,
-                x,
-                padding + font_size + line_height * 7.0,
-                text_params.clone(),
-            );
+
+            // Draw score line (base score in white)
+            let score_y = bg_y + bg_padding + font_size + line_height * 7.0;
+            draw_text_ex(&line7, x, score_y, text_params.clone());
+
+            // If beating previous best, draw the diff in green
+            if !line7_diff.is_empty() {
+                let line7_width = measure_text(&line7, font, font_size as u16, 1.0).width;
+                draw_text_ex(
+                    &line7_diff,
+                    x + line7_width,
+                    score_y,
+                    TextParams {
+                        font,
+                        font_size: font_size as u16,
+                        color: Color::new(0.0, 1.0, 0.0, 1.0), // Bright green
+                        ..Default::default()
+                    },
+                );
+            }
+
             draw_text_ex(
                 &line8,
                 x,
-                padding + font_size + line_height * 8.0,
+                bg_y + bg_padding + font_size + line_height * 8.0,
                 text_params,
             );
         }

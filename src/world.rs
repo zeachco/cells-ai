@@ -51,7 +51,8 @@ pub struct World {
     followed_cell_death_time: Option<f64>, // Track when the followed cell died
     // Simulation controls
     pub paused: bool,
-    pub simulation_speed: f32, // 1.0 = normal, 0.5 = half speed, 2.0 = double speed
+    pub simulation_speed: f32, // 1.0 = normal speed, 2.0 = double speed, etc. (min 1.0)
+    tick_accumulator: f32,     // Fractional tick accumulator for simulation speed
     pub tick_count: usize,     // Cumulative ticks, resets on sim reset
     pub reset_count: usize,    // Cumulative resets
     pub elapsed_time: f32,     // Elapsed simulation time in seconds, resets on sim reset
@@ -59,6 +60,7 @@ pub struct World {
     pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
     pub tier_cell_counts: [usize; 4],
     pub tier_diversities: [f32; 4],
+    pub tier_current_best_scores: [f32; 4], // Current best score for alive cells in each tier
     // Configuration
     config: SimulationConfig,
     // Cached best neural networks per tier (brain, generation) - loaded once from storage
@@ -120,12 +122,14 @@ impl World {
             followed_cell_death_time: None,
             paused: false,
             simulation_speed: 1.0,
+            tick_accumulator: 0.0,
             tick_count: 0,
             reset_count: 0,
             elapsed_time: 0.0,
             color_diversity: 0.0,
             tier_cell_counts: [0; 4],
             tier_diversities: [0.0; 4],
+            tier_current_best_scores: [0.0; 4],
             config,
             cached_best_brains,
             best_saved_scores,
@@ -248,7 +252,59 @@ impl World {
             return;
         }
 
-        // Increment tick counter and elapsed time (only when not paused)
+        // Adjust max_cells cap based on FPS (once per frame)
+        self.adjust_cell_cap();
+
+        // Add simulation speed to accumulator and run multiple ticks if needed
+        self.tick_accumulator += self.simulation_speed;
+
+        // Run simulation ticks based on accumulated time
+        while self.tick_accumulator >= 1.0 {
+            self.run_simulation_tick(delta_time);
+            self.tick_accumulator -= 1.0;
+        }
+
+        // Update camera to follow selected cell if stats box is selected (once per frame)
+        if let Some((x, y)) = self.stats.get_selected_position() {
+            // Center the camera on the selected cell using 10% of the delta
+            let screen_w = screen_width();
+            let screen_h = screen_height();
+            let target_camera_x = x - screen_w / 2.0;
+            let target_camera_y = y - screen_h / 2.0;
+
+            // Calculate delta (distance to target)
+            let mut delta_x = target_camera_x - self.camera.x;
+            let mut delta_y = target_camera_y - self.camera.y;
+
+            // Account for world wrapping - take shortest path around toroidal world
+            let world_width = self.config.world_width;
+            let world_height = self.config.world_height;
+
+            if delta_x.abs() > world_width / 2.0 {
+                if delta_x > 0.0 {
+                    delta_x -= world_width;
+                } else {
+                    delta_x += world_width;
+                }
+            }
+
+            if delta_y.abs() > world_height / 2.0 {
+                if delta_y > 0.0 {
+                    delta_y -= world_height;
+                } else {
+                    delta_y += world_height;
+                }
+            }
+
+            // Move camera towards target using configured tracking speed
+            self.camera.target_x = self.camera.x + delta_x * self.config.camera_tracking_speed;
+            self.camera.target_y = self.camera.y + delta_y * self.config.camera_tracking_speed;
+        }
+    }
+
+    // Run a single simulation tick
+    fn run_simulation_tick(&mut self, delta_time: f32) {
+        // Increment tick counter and elapsed time
         self.tick_count += 1;
         self.elapsed_time += delta_time;
 
@@ -259,18 +315,11 @@ impl World {
             self.respawn_from_best();
         }
 
-        // Note: simulation_speed affects how many updates we process
-        // For simplicity, we just run more/fewer frames naturally with FPS changes
-
-        // Adjust max_cells cap based on FPS
-        self.adjust_cell_cap();
-
         // Capture world dimensions for parallel context
         let world_width = self.config.world_width;
         let world_height = self.config.world_height;
 
-        // Parallel cell updates (speed affects energy costs and movement)
-        // Note: For simplicity, we update normally and accept speed affects FPS
+        // Parallel cell updates
         self.cells.par_iter_mut().for_each(|cell| {
             cell.update(world_width, world_height);
         });
@@ -329,43 +378,6 @@ impl World {
         if alive_count == 0 && self.best_cell_genome.is_some() {
             self.respawn_from_best();
         }
-
-        // Update camera to follow selected cell if stats box is selected
-        if let Some((x, y)) = self.stats.get_selected_position() {
-            // Center the camera on the selected cell using 10% of the delta
-            let screen_w = screen_width();
-            let screen_h = screen_height();
-            let target_camera_x = x - screen_w / 2.0;
-            let target_camera_y = y - screen_h / 2.0;
-
-            // Calculate delta (distance to target)
-            let mut delta_x = target_camera_x - self.camera.x;
-            let mut delta_y = target_camera_y - self.camera.y;
-
-            // Account for world wrapping - take shortest path around toroidal world
-            let world_width = self.config.world_width;
-            let world_height = self.config.world_height;
-
-            if delta_x.abs() > world_width / 2.0 {
-                if delta_x > 0.0 {
-                    delta_x -= world_width;
-                } else {
-                    delta_x += world_width;
-                }
-            }
-
-            if delta_y.abs() > world_height / 2.0 {
-                if delta_y > 0.0 {
-                    delta_y -= world_height;
-                } else {
-                    delta_y += world_height;
-                }
-            }
-
-            // Move camera towards target using configured tracking speed
-            self.camera.target_x = self.camera.x + delta_x * self.config.camera_tracking_speed;
-            self.camera.target_y = self.camera.y + delta_y * self.config.camera_tracking_speed;
-        }
     }
 
     // Check if mouse is over stats box
@@ -416,7 +428,7 @@ impl World {
 
         // - or _: Decrease speed
         if is_key_pressed(KeyCode::Minus) || is_key_pressed(KeyCode::KpSubtract) {
-            self.simulation_speed = (self.simulation_speed / 1.5).max(0.125);
+            self.simulation_speed = (self.simulation_speed / 1.5).max(1.0);
             println!("Simulation speed: {:.1}x", self.simulation_speed);
         }
 
@@ -749,6 +761,7 @@ impl World {
         let mut best_score = f32::MIN;
         let mut best_cell_index = None;
         let mut alive_cells = Vec::new();
+        let mut tier_best_scores = [f32::MIN; 4];
 
         for (i, cell) in self.cells.iter().enumerate() {
             // Only consider alive cells
@@ -761,7 +774,18 @@ impl World {
                     best_score = score;
                     best_cell_index = Some(i);
                 }
+
+                // Track best score per tier
+                let tier = cell.brain_tier.min(3);
+                if score > tier_best_scores[tier] {
+                    tier_best_scores[tier] = score;
+                }
             }
+        }
+
+        // Update tier current best scores (convert f32::MIN to 0.0 for empty tiers)
+        for (tier, &score) in tier_best_scores.iter().enumerate() {
+            self.tier_current_best_scores[tier] = if score == f32::MIN { 0.0 } else { score };
         }
 
         // Calculate color diversity (hue variance)
@@ -875,6 +899,7 @@ impl World {
                     brain_tier: best_cell.brain_tier,
                     brain_operations: best_cell.brain.operation_count(),
                     cell_index: best_index,
+                    prev_best_score: self.best_saved_scores[best_cell.brain_tier],
                 });
 
                 // Update selected cell index if stats are selected
@@ -900,6 +925,7 @@ impl World {
                         brain_tier: dead_cell.brain_tier,
                         brain_operations: dead_cell.brain.operation_count(),
                         cell_index: last_index,
+                        prev_best_score: self.best_saved_scores[dead_cell.brain_tier],
                     });
                 }
             }
@@ -1345,7 +1371,7 @@ impl World {
         if self.config.show_ui {
             self.render_stats(cells_in_viewport);
 
-            // Render best cell stats (top-right corner)
+            // Render best cell stats (bottom-right corner)
             self.stats.render(self.font.as_ref());
         }
     }
@@ -1534,10 +1560,13 @@ impl World {
         let tier_hues = [180.0_f32, 270.0, 0.0, 90.0];
         let total_alive = self.tier_cell_counts.iter().sum::<usize>().max(1);
 
-        // Sort tiers by cell count (descending)
+        // Sort tiers by best saved score (descending)
         let mut tier_indices: Vec<usize> = (0..4).collect();
-        tier_indices
-            .sort_unstable_by(|&a, &b| self.tier_cell_counts[b].cmp(&self.tier_cell_counts[a]));
+        tier_indices.sort_unstable_by(|&a, &b| {
+            self.best_saved_scores[b]
+                .partial_cmp(&self.best_saved_scores[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         for (display_idx, &tier) in tier_indices.iter().enumerate() {
             let tier_hue = tier_hues[tier];
@@ -1608,9 +1637,10 @@ impl World {
 
             // Count + max score text
             let info = format!(" {} cells (top score: {:.0})", count, max_score);
+            let info_x = bar_x + bar_max_width + 4.0;
             draw_text_ex(
                 &info,
-                bar_x + bar_max_width + 4.0,
+                info_x,
                 y_base,
                 TextParams {
                     font: self.font.as_ref(),
@@ -1619,6 +1649,26 @@ impl World {
                     ..Default::default()
                 },
             );
+
+            // Add score diff if current best beats saved best
+            let current_best = self.tier_current_best_scores[tier];
+            if current_best > max_score && max_score > 0.0 {
+                let diff = current_best - max_score;
+                let diff_text = format!(" + {:.1}", diff);
+                let info_width =
+                    measure_text(&info, self.font.as_ref(), font_size as u16, 1.0).width;
+                draw_text_ex(
+                    &diff_text,
+                    info_x + info_width,
+                    y_base,
+                    TextParams {
+                        font: self.font.as_ref(),
+                        font_size: font_size as u16,
+                        color: Color::new(0.0, 1.0, 0.0, 1.0), // Bright green
+                        ..Default::default()
+                    },
+                );
+            }
         }
 
         // Total line
