@@ -60,6 +60,10 @@ pub struct Cell {
     pub alive_center_angle: f32, // Angle to alive cells center of mass (radians, -PI to PI)
     pub alive_center_distance: f32, // Distance to alive cells center of mass
 
+    // Density sensor (calculated from spatial grid)
+    pub local_density: usize, // Number of cells in same bucket + neighboring buckets (includes self)
+    pub density_penalty: f32, // Penalty applied when cluster > 50% of population cap
+
     // ===== Neural Network Brain =====
     pub brain: NeuralNetwork,
     pub brain_tier: usize, // 0-3: determines hidden layer width and hue offset
@@ -178,7 +182,7 @@ impl Cell {
         } else {
             // No cached brain, create new random network with tier-appropriate size
             (
-                NeuralNetwork::new_with_multiplier(26, 4, hidden_multiplier),
+                NeuralNetwork::new_with_multiplier(27, 4, hidden_multiplier),
                 0,
             )
         };
@@ -217,6 +221,8 @@ impl Cell {
             dead_center_distance: 200.0, // Default to max range (nothing detected)
             alive_center_angle: 0.0,
             alive_center_distance: 200.0,
+            local_density: 1,     // Will be updated on first sensor update
+            density_penalty: 0.0, // Will be updated on first sensor update
 
             // Neural Network Brain
             brain,
@@ -285,6 +291,8 @@ impl Cell {
             dead_center_distance: 200.0, // Default to max range (nothing detected)
             alive_center_angle: 0.0,
             alive_center_distance: 200.0,
+            local_density: 1,     // Will be updated on first sensor update
+            density_penalty: 0.0, // Will be updated on first sensor update
 
             // Neural Network Brain (inherited and mutated)
             brain,
@@ -307,11 +315,12 @@ impl Cell {
     // Each sensor returns 4 values: angle, distance, mass, is_alive
     // Plus 1 value for current energy level
     // Plus 5 values for center of mass (dead/alive ratio, dead angle/distance, alive angle/distance)
-    // Total: 5 sensors × 4 values + 1 energy + 5 center of mass = 26 inputs
+    // Plus 1 value for local density (1 / nb_cells in bucket cluster)
+    // Total: 5 sensors × 4 values + 1 energy + 5 center of mass + 1 density = 27 inputs
     fn normalize_sensors(&self) -> Vec<f32> {
         use crate::world::{DEPLETED_CELL_ENERGY, REPRODUCTION_ENERGY_THRESHOLD, SENSOR_RANGE};
         const MAX_MASS: f32 = 220.0; // Maximum mass value from spawn()
-        let mut inputs = Vec::with_capacity(26);
+        let mut inputs = Vec::with_capacity(27);
 
         for i in 0..5 {
             if i < self.nearest_cells.len() {
@@ -372,6 +381,11 @@ impl Cell {
         let normalized_alive_distance = (SENSOR_RANGE - self.alive_center_distance) / SENSOR_RANGE;
         let normalized_alive_distance = normalized_alive_distance * 2.0 - 1.0;
         inputs.push(normalized_alive_distance);
+
+        // Local density: 1 / nb_cells (higher value = less crowded)
+        // Ensures value is always > 0 and <= 1.0
+        let density_input = 1.0 / self.local_density.max(1) as f32;
+        inputs.push(density_input);
 
         inputs
     }
@@ -601,7 +615,10 @@ impl Cell {
         // Scale by 50 so ~100 ticks of good tracking ≈ half a child's worth of score.
         let tracking = self.tracking_score * 50.0;
 
-        children_score + energy_score + age_score + tracking
+        // Density penalty: discourage overcrowding (penalty applied in world.rs when cluster > 50% of cap)
+        let density_penalty_score = self.density_penalty;
+
+        children_score + energy_score + age_score + tracking - density_penalty_score
     }
 
     pub fn render(&self, camera_x: f32, camera_y: f32) {

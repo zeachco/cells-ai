@@ -79,6 +79,32 @@ impl SpatialGrid {
         let grid_y = ((y / self.bucket_size).floor() as usize) % self.grid_height;
         grid_y * self.grid_width + grid_x
     }
+
+    /// Count cells in the same bucket and neighboring buckets (1 bucket radius)
+    /// Includes the cell itself in the count
+    pub fn count_nearby_in_bucket(&self, x: f32, y: f32) -> usize {
+        let grid_x = (x / self.bucket_size).floor() as i32;
+        let grid_y = (y / self.bucket_size).floor() as i32;
+
+        let mut count = 0;
+
+        // Check neighboring buckets (1 bucket radius = -1 to +1)
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let check_x = grid_x + dx;
+                let check_y = grid_y + dy;
+
+                // Handle wrapping boundaries
+                let wrapped_x = check_x.rem_euclid(self.grid_width as i32) as usize;
+                let wrapped_y = check_y.rem_euclid(self.grid_height as i32) as usize;
+
+                let bucket_index = wrapped_y * self.grid_width + wrapped_x;
+                count += self.buckets[bucket_index].len();
+            }
+        }
+
+        count
+    }
 }
 
 #[cfg(test)]

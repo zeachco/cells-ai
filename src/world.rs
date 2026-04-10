@@ -489,8 +489,30 @@ impl World {
         let world_width = self.config.world_width;
         let world_height = self.config.world_height;
 
+        // Calculate local density for each cell (must be done before parallel update)
+        let density_counts: Vec<usize> = self
+            .cells
+            .iter()
+            .map(|cell| self.spatial_grid.count_nearby_in_bucket(cell.x, cell.y))
+            .collect();
+
+        // Capture max_cells for density penalty calculation
+        let max_cells = self.max_cells;
+
         // Update sensors for each cell in parallel
         self.cells.par_iter_mut().enumerate().for_each(|(i, cell)| {
+            // Update local density from pre-calculated counts
+            cell.local_density = density_counts[i];
+
+            // Calculate density penalty if cluster > 50% of population cap
+            if cell.local_density > max_cells / 2 {
+                // Penalty: (1 - (1 / nb_cells))
+                // This value is subtracted from score, so higher density = higher penalty
+                cell.density_penalty = 1.0 - (1.0 / cell.local_density as f32);
+            } else {
+                // No penalty when not overcrowded
+                cell.density_penalty = 0.0;
+            }
             // Query nearby cells using spatial grid
             let nearby_indices = self.spatial_grid.query_nearby(cell.x, cell.y, SENSOR_RANGE);
 

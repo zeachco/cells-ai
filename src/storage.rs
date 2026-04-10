@@ -2,8 +2,8 @@ use crate::neural_network::NeuralNetwork;
 use serde::{Deserialize, Serialize};
 
 // Expected neural network input size (must match cell sensor normalization)
-// 5 sensors × 4 values + 1 energy + 5 center-of-mass values = 26
-const EXPECTED_INPUT_SIZE: usize = 26;
+// 5 sensors × 4 values + 1 energy + 5 center-of-mass values + 1 density = 27
+const EXPECTED_INPUT_SIZE: usize = 27;
 
 #[cfg(target_arch = "wasm32")]
 fn key_for_tier(tier: usize) -> String {
