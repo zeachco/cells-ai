@@ -54,6 +54,8 @@ pub struct World {
     pub simulation_speed: f32, // 1.0 = normal, 0.5 = half speed, 2.0 = double speed
     // Diversity tracking
     pub color_diversity: f32, // 0.0 = no diversity, 1.0 = maximum diversity
+    pub tier_cell_counts: [usize; 4],
+    pub tier_diversities: [f32; 4],
     // Configuration
     config: SimulationConfig,
     // Cached best neural networks per tier (brain, generation) - loaded once from storage
@@ -116,6 +118,8 @@ impl World {
             paused: false,
             simulation_speed: 1.0,
             color_diversity: 0.0,
+            tier_cell_counts: [0; 4],
+            tier_diversities: [0.0; 4],
             config,
             cached_best_brains,
             best_saved_scores,
@@ -626,6 +630,34 @@ impl World {
             self.color_diversity = (variance / (180.0 * 180.0)).min(1.0);
         } else {
             self.color_diversity = 0.0;
+        }
+
+        // Calculate per-tier cell counts and intra-tier hue diversity
+        let mut tier_counts = [0usize; 4];
+        let mut tier_hues: [Vec<f32>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        for cell in &alive_cells {
+            let tier = cell.brain_tier.min(3);
+            tier_counts[tier] += 1;
+            let (h, _, _) = Cell::rgb_to_hsv_public(cell.color);
+            tier_hues[tier].push(h);
+        }
+        self.tier_cell_counts = tier_counts;
+        for (tier, hues) in tier_hues.iter().enumerate() {
+            self.tier_diversities[tier] = if hues.len() > 1 {
+                let mean: f32 = hues.iter().sum::<f32>() / hues.len() as f32;
+                let variance: f32 = hues
+                    .iter()
+                    .map(|h| {
+                        let diff = (h - mean).abs();
+                        let diff = if diff > 180.0 { 360.0 - diff } else { diff };
+                        diff * diff
+                    })
+                    .sum::<f32>()
+                    / hues.len() as f32;
+                (variance / (180.0 * 180.0)).min(1.0)
+            } else {
+                0.0
+            };
         }
 
         // Update stats and genome with the best cell only, or clear if no alive cells
@@ -1262,19 +1294,112 @@ impl World {
             state_color,
         );
 
-        // Line 5: Diversity metric
-        let diversity_text = format!("Diversity: {:.1}%", self.color_diversity * 100.0);
-        let diversity_color = if self.color_diversity < 0.2 {
-            Color::new(1.0, 0.5, 0.5, 1.0) // Low diversity warning (red-ish)
-        } else {
-            Color::new(0.5, 1.0, 0.5, 1.0) // Good diversity (green-ish)
-        };
-        draw_text(
-            &diversity_text,
+        // Lines 5-9: Per-tier population bars + total
+        let bar_max_width = 200.0_f32;
+        let bar_height = 14.0_f32;
+        // Base hue per tier: 180 + tier * 90 (same as Cell::spawn)
+        let tier_hues = [180.0_f32, 270.0, 0.0, 90.0];
+        let total_alive = self.tier_cell_counts.iter().sum::<usize>().max(1);
+
+        for (tier, &tier_hue) in tier_hues.iter().enumerate() {
+            let y_base = padding + font_size + line_height * (4.0 + tier as f32);
+            let count = self.tier_cell_counts[tier];
+            let diversity_pct = self.tier_diversities[tier] * 100.0;
+
+            // Tier label color derived from base hue (s=0.8, v=0.9)
+            let h = tier_hue;
+            let tier_color = {
+                let s = 0.8_f32;
+                let v = 0.9_f32;
+                let c = v * s;
+                let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+                let m = v - c;
+                let (r, g, b) = if h < 60.0 {
+                    (c, x, 0.0)
+                } else if h < 120.0 {
+                    (x, c, 0.0)
+                } else if h < 180.0 {
+                    (0.0, c, x)
+                } else if h < 240.0 {
+                    (0.0, x, c)
+                } else if h < 300.0 {
+                    (x, 0.0, c)
+                } else {
+                    (c, 0.0, x)
+                };
+                Color::new(r + m, g + m, b + m, 1.0)
+            };
+
+            let label = format!("m{}:", tier);
+            let label_width = measure_text(&label, self.font.as_ref(), font_size as u16, 1.0).width;
+            draw_text_ex(
+                &label,
+                padding,
+                y_base,
+                TextParams {
+                    font: self.font.as_ref(),
+                    font_size: font_size as u16,
+                    color: tier_color,
+                    ..Default::default()
+                },
+            );
+
+            // Progress bar
+            let bar_x = padding + label_width + 6.0;
+            let bar_y = y_base - bar_height + 2.0;
+            let fill_width = (count as f32 / total_alive as f32) * bar_max_width;
+            // Background track
+            draw_rectangle(
+                bar_x,
+                bar_y,
+                bar_max_width,
+                bar_height,
+                Color::new(1.0, 1.0, 1.0, 0.1),
+            );
+            // Filled portion
+            if fill_width > 0.0 {
+                draw_rectangle(
+                    bar_x,
+                    bar_y,
+                    fill_width,
+                    bar_height,
+                    Color::new(tier_color.r, tier_color.g, tier_color.b, 0.7),
+                );
+            }
+
+            // Count + diversity text
+            let info = format!(" {} cells ({:.0}%)", count, diversity_pct);
+            draw_text_ex(
+                &info,
+                bar_x + bar_max_width + 4.0,
+                y_base,
+                TextParams {
+                    font: self.font.as_ref(),
+                    font_size: font_size as u16,
+                    color: WHITE,
+                    ..Default::default()
+                },
+            );
+        }
+
+        // Total line
+        let total_diversity = self.tier_diversities.iter().sum::<f32>() / 4.0;
+        let total_y = padding + font_size + line_height * 8.0;
+        let total_text = format!(
+            "total: {} cells ({:.0}% diversity)",
+            total_alive,
+            total_diversity * 100.0
+        );
+        draw_text_ex(
+            &total_text,
             padding,
-            padding + font_size + line_height * 4.0,
-            font_size,
-            diversity_color,
+            total_y,
+            TextParams {
+                font: self.font.as_ref(),
+                font_size: font_size as u16,
+                color: Color::new(0.8, 0.8, 0.8, 1.0),
+                ..Default::default()
+            },
         );
 
         // Controls help (bottom-left)
