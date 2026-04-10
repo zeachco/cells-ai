@@ -44,7 +44,7 @@ impl Camera {
     }
 
     pub fn handle_input(&mut self, delta_time: f32, skip_mouse_input: bool) {
-        let max_move = screen_width() / 10.0;
+        let max_move = 5.0;
 
         // WASD for movement
         if is_key_down(KeyCode::W) {
