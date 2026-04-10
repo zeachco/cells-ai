@@ -17,7 +17,7 @@ const CELL_CAP_STEP: usize = 100; // Adjust cap by 100 cells at a time
 const CELL_CAP_SLOW_STEP: usize = 20; // Slow increase when FPS is good but not maxed
 
 // World simulation constants
-pub const SENSOR_RANGE: f32 = 200.0; // Public so cells can normalize sensor inputs
+pub const SENSOR_RANGE: f32 = 400.0; // Public so cells can normalize sensor inputs
 const SENSOR_RANGE_SQUARED: f32 = SENSOR_RANGE * SENSOR_RANGE;
 const SENSOR_COUNT: usize = 5;
 pub const REPRODUCTION_ENERGY_THRESHOLD: f32 = 100.0; // Public for energy normalization
@@ -505,7 +505,9 @@ impl World {
             .cells
             .iter()
             .map(|cell| {
-                let count = self.spatial_grid.count_nearby_in_bucket(cell.x, cell.y);
+                let count = self
+                    .spatial_grid
+                    .count_nearby_in_bucket(cell.x, cell.y, SENSOR_RANGE);
                 count.max(1) // Ensure count is at least 1 to avoid division by zero
             })
             .collect();

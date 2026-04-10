@@ -225,9 +225,9 @@ impl Cell {
             nearest_cells: Vec::new(),
             dead_alive_ratio: 0.0,
             dead_center_angle: 0.0,
-            dead_center_distance: 200.0, // Default to max range (nothing detected)
+            dead_center_distance: crate::world::SENSOR_RANGE, // Default to max range (nothing detected)
             alive_center_angle: 0.0,
-            alive_center_distance: 200.0,
+            alive_center_distance: crate::world::SENSOR_RANGE,
             local_density: 1,     // Will be updated on first sensor update
             density_penalty: 0.0, // Will be updated on first sensor update
 
@@ -304,9 +304,9 @@ impl Cell {
             nearest_cells: Vec::new(),
             dead_alive_ratio: 0.0,
             dead_center_angle: 0.0,
-            dead_center_distance: 200.0, // Default to max range (nothing detected)
+            dead_center_distance: crate::world::SENSOR_RANGE, // Default to max range (nothing detected)
             alive_center_angle: 0.0,
-            alive_center_distance: 200.0,
+            alive_center_distance: crate::world::SENSOR_RANGE,
             local_density: 1,     // Will be updated on first sensor update
             density_penalty: 0.0, // Will be updated on first sensor update
 
