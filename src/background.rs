@@ -29,30 +29,41 @@ float hash2(vec2 p) {
 }
 
 // Returns brightness of a single star layer.
+// Samples a 3x3 neighbourhood of cells so Gaussian glows that cross cell
+// boundaries are never truncated.
 // world_pos : pixel-space position after parallax offset
 // cell_size : size of each hash-cell in pixels
 // density   : fraction of cells (0..1) that contain a star
 // glow_sigma: Gaussian sigma in normalised cell-space (0..1)
 float star_layer(vec2 world_pos, float cell_size, float density, float glow_sigma) {
-    vec2 scaled = world_pos / cell_size;
-    vec2 cell   = floor(scaled);
-    vec2 local  = fract(scaled);
+    vec2  scaled  = world_pos / cell_size;
+    vec2  cell    = floor(scaled);
+    vec2  local   = fract(scaled);
+    float sigma2  = glow_sigma * glow_sigma;
+    float total   = 0.0;
 
-    // Fast reject — most cells are empty
-    if (hash2(cell) > density) return 0.0;
+    // 3x3 neighbourhood — constant loop bounds are fine in GLSL ES 1.0
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            vec2 nc = cell + vec2(float(dx), float(dy));
 
-    // Deterministic star position within the cell (0.1..0.9 avoids edge clipping)
-    float sx   = 0.1 + hash2(cell + vec2(3.7, 0.0)) * 0.8;
-    float sy   = 0.1 + hash2(cell + vec2(0.0, 5.3)) * 0.8;
-    vec2  star = vec2(sx, sy);
+            if (hash2(nc) > density) continue;
 
-    float dist2      = dot(local - star, local - star);
-    float sigma2     = glow_sigma * glow_sigma;
-    float brightness = exp(-dist2 / (2.0 * sigma2));
+            // Star position within neighbour cell (0.1..0.9 keeps it away from edges)
+            float sx = 0.1 + hash2(nc + vec2(3.7, 0.0)) * 0.8;
+            float sy = 0.1 + hash2(nc + vec2(0.0, 5.3)) * 0.8;
 
-    // Per-star brightness variation
-    float dimmer = 0.5 + hash2(cell + vec2(11.1, 7.7)) * 0.5;
-    return brightness * dimmer;
+            // Offset star into the current cell's coordinate space
+            vec2  star   = vec2(sx + float(dx), sy + float(dy));
+            vec2  diff   = local - star;
+            float dist2  = dot(diff, diff);
+            float bright = exp(-dist2 / (2.0 * sigma2));
+            float dimmer = 0.5 + hash2(nc + vec2(11.1, 7.7)) * 0.5;
+            total += bright * dimmer;
+        }
+    }
+
+    return total;
 }
 
 void main() {
