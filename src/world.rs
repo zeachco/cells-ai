@@ -136,44 +136,39 @@ impl World {
 
     // Reset the world with spawns from the best cell's genome
     pub fn respawn_from_best(&mut self) {
-        if let Some(best_cell) = &self.best_cell_genome {
-            // Clear current cells
-            self.cells.clear();
+        // Clear current cells
+        self.cells.clear();
 
-            // Spawn new cells based on the best cell's genome
-            let spawn_count = self.max_cells.min(self.config.initial_cell_count);
-            for _ in 0..spawn_count {
-                let mut new_cell = best_cell.spawn_child();
+        // Spawn new cells equally distributed across all 4 tiers
+        let spawn_count = self.max_cells.min(self.config.initial_cell_count);
 
-                // Randomize position across the entire map
-                new_cell.x = rand::gen_range(0.0, self.config.world_width);
-                new_cell.y = rand::gen_range(0.0, self.config.world_height);
+        // Calculate cells per tier (evenly distributed)
+        let cells_per_tier = spawn_count / 4;
+        let remainder = spawn_count % 4;
+
+        for tier in 0..4 {
+            // Distribute remainder across first N tiers
+            let tier_count = cells_per_tier + if tier < remainder { 1 } else { 0 };
+
+            for _ in 0..tier_count {
+                let mut new_cell = Cell::spawn(
+                    self.config.world_width,
+                    self.config.world_height,
+                    tier,
+                    &self.cached_best_brains[tier],
+                );
 
                 // Give them starting energy
                 new_cell.energy = 100.0;
 
                 self.cells.push(new_cell);
             }
-
-            println!(
-                "World reset! Spawned {} cells from best genome (score: {:.1})",
-                spawn_count,
-                best_cell.score()
-            );
-        } else {
-            // No best cell genome, spawn fresh cells using cached brains by tier
-            let spawn_count = self.max_cells.min(self.config.initial_cell_count);
-            for i in 0..spawn_count {
-                let tier = i % 4;
-                self.cells.push(Cell::spawn(
-                    self.config.world_width,
-                    self.config.world_height,
-                    tier,
-                    &self.cached_best_brains[tier],
-                ));
-            }
-            println!("World reset! Spawned {} fresh cells", spawn_count);
         }
+
+        println!(
+            "World reset! Spawned {} cells ({} per tier)",
+            spawn_count, cells_per_tier
+        );
     }
 
     pub fn update(&mut self, delta_time: f32) {
