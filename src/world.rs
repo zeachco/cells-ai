@@ -147,16 +147,39 @@ impl World {
         self.tick_count = 0;
         self.reset_count += 1;
 
-        // Spawn new cells equally distributed across all 4 tiers
-        let spawn_count = self.max_cells.min(self.config.initial_cell_count);
+        // Spawn count minimum is 100
+        let spawn_count = self.max_cells.min(self.config.initial_cell_count).max(100);
 
-        // Calculate cells per tier (evenly distributed)
-        let cells_per_tier = spawn_count / 4;
-        let remainder = spawn_count % 4;
+        // Calculate inverse ratios (1/score) so better scores get fewer instances
+        let mut inverse_ratios = [0.0f32; 4];
+        for (i, &score) in self.best_saved_scores.iter().enumerate() {
+            if score > 0.0 {
+                inverse_ratios[i] = 1.0 / score;
+            } else {
+                inverse_ratios[i] = 1.0; // Default for zero scores
+            }
+        }
 
-        for tier in 0..4 {
-            // Distribute remainder across first N tiers
-            let tier_count = cells_per_tier + if tier < remainder { 1 } else { 0 };
+        // Normalize ratios to sum to 1
+        let ratio_sum: f32 = inverse_ratios.iter().sum();
+        let mut ratios = [0.0f32; 4];
+        if ratio_sum > 0.0 {
+            for (i, &inv_ratio) in inverse_ratios.iter().enumerate() {
+                ratios[i] = inv_ratio / ratio_sum;
+            }
+        } else {
+            // If all scores are zero, distribute evenly
+            ratios = [0.25, 0.25, 0.25, 0.25];
+        }
+
+        // Calculate cells per tier based on ratios
+        // Clamp to minimum of 10 and maximum of ceil(0.75 * spawn_count)
+        let max_per_tier = (0.75 * spawn_count as f32).ceil() as usize;
+
+        let mut total_spawned = 0;
+        for (tier, &ratio) in ratios.iter().enumerate() {
+            let tier_count = (self.max_cells as f32 * ratio).round() as usize;
+            let tier_count = tier_count.clamp(10, max_per_tier);
 
             for _ in 0..tier_count {
                 let mut new_cell = Cell::spawn(
@@ -171,11 +194,42 @@ impl World {
 
                 self.cells.push(new_cell);
             }
+            total_spawned += tier_count;
+        }
+
+        // Spawn dead bodies (20-30% of total spawn count) for food
+        let corpse_count = (total_spawned as f32 * rand::gen_range(0.2, 0.3)) as usize;
+        for _ in 0..corpse_count {
+            // Randomly select a tier for the corpse
+            let tier = rand::gen_range(0, 4);
+            let mut corpse = Cell::spawn(
+                self.config.world_width,
+                self.config.world_height,
+                tier,
+                &self.cached_best_brains[tier],
+            );
+
+            // Make it a corpse with no energy
+            corpse.state = CellState::Corpse;
+            corpse.energy = 0.0;
+            // Randomize age to make it look more natural
+            corpse.age = rand::gen_range(10.0, 100.0);
+
+            self.cells.push(corpse);
         }
 
         println!(
-            "World reset! Spawned {} cells ({} per tier)",
-            spawn_count, cells_per_tier
+            "World reset! Spawned {} alive cells + {} corpses (scores: [{:.1}, {:.1}, {:.1}, {:.1}], ratios: [{:.3}, {:.3}, {:.3}, {:.3}])",
+            total_spawned,
+            corpse_count,
+            self.best_saved_scores[0],
+            self.best_saved_scores[1],
+            self.best_saved_scores[2],
+            self.best_saved_scores[3],
+            ratios[0],
+            ratios[1],
+            ratios[2],
+            ratios[3]
         );
     }
 
@@ -412,6 +466,7 @@ impl World {
             // FPS comfortably above 60, slowly grow the cap
             self.max_cells += CELL_CAP_SLOW_STEP;
         }
+        self.max_cells = self.max_cells.clamp(10, 7_000);
         // If FPS is between 30-60, don't change the cap
     }
 
