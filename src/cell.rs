@@ -175,8 +175,15 @@ impl Cell {
         // Use cached brain if available, otherwise create a new random network
         let (brain, loaded_generation) = if let Some((saved_brain, generation)) = cached_brain {
             let mut brain = saved_brain.clone();
-            // Apply small mutation (1-5%) to add variance
-            let mutation_rate = rand::gen_range(0.01, 0.05);
+            // Apply generation-based mutation to add variance
+            let base_rate = rand::gen_range(0.01, 0.05);
+
+            // Same decay logic as reproduction
+            let adjusted_gen = (*generation as f32 - 5.0).max(0.0);
+            let decay_factor = 1.0 / (1.0 + adjusted_gen * 0.05);
+            let generation_factor = decay_factor.max(0.3);
+
+            let mutation_rate = (base_rate * generation_factor).clamp(0.01, 0.05);
             brain.mutate(mutation_rate);
             (brain, *generation)
         } else {
@@ -255,8 +262,17 @@ impl Cell {
         let mutated_color = Self::hsv_to_rgb(mutated_hue, s, v);
 
         // Clone and mutate the parent's brain
-        // Mutation rate varies randomly between 1% and 10%
-        let mutation_rate = rand::gen_range(0.01, 0.10);
+        // Hybrid mutation: aggressive for first ~5 generations, then gradual decay
+        let base_rate = rand::gen_range(0.01, 0.10);
+
+        // Keep full mutation for first 5 generations, then decay
+        let adjusted_gen = (self.generation as f32 - 5.0).max(0.0);
+        let decay_factor = 1.0 / (1.0 + adjusted_gen * 0.05);
+
+        // Clamp to maintain minimum 30% exploration (never drop below 0.3x base rate)
+        let generation_factor = decay_factor.max(0.3);
+
+        let mutation_rate = (base_rate * generation_factor).clamp(0.01, 0.10);
         let mut brain = self.brain.clone();
         brain.mutate(mutation_rate);
 
