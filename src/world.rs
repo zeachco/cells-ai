@@ -9,10 +9,12 @@ use std::collections::VecDeque;
 
 // FPS performance targets
 const TARGET_MIN_FPS: f32 = 30.0;
+const TARGET_GOOD_FPS: f32 = 60.0;
 const TARGET_MAX_FPS: f32 = 240.0;
 const FPS_SAMPLE_SIZE: usize = 60; // Track last 60 frames
 const ADJUSTMENT_INTERVAL: f32 = 2.0; // Adjust cap every 2 seconds
 const CELL_CAP_STEP: usize = 100; // Adjust cap by 100 cells at a time
+const CELL_CAP_SLOW_STEP: usize = 20; // Slow increase when FPS is good but not maxed
 
 // World simulation constants
 pub const SENSOR_RANGE: f32 = 200.0; // Public so cells can normalize sensor inputs
@@ -392,14 +394,15 @@ impl World {
         // Adjust cap based on FPS
         if self.current_fps < TARGET_MIN_FPS {
             // FPS too low, reduce cap
-            if self.max_cells > CELL_CAP_STEP {
-                self.max_cells = self.max_cells.saturating_sub(CELL_CAP_STEP);
-            }
+            self.max_cells = self.max_cells.saturating_sub(CELL_CAP_STEP);
         } else if self.current_fps > TARGET_MAX_FPS {
-            // FPS too high, increase cap
+            // FPS very high, increase cap quickly
             self.max_cells += CELL_CAP_STEP;
+        } else if self.current_fps > TARGET_GOOD_FPS {
+            // FPS comfortably above 60, slowly grow the cap
+            self.max_cells += CELL_CAP_SLOW_STEP;
         }
-        // If FPS is between 30-240, don't change the cap
+        // If FPS is between 30-60, don't change the cap
     }
 
     fn handle_reproduction(&mut self) {
